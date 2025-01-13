@@ -14,12 +14,8 @@
 
   <ItemGroup>
     <Folder Include="Configurations\" />
-    <Folder Include="Repositories\" />
     <Folder Include="SqlScripts\" />
+    <Folder Include="Repositories\" />
   </ItemGroup>
-
-<ItemGroup>
-    <None Include="SQLScripts\**" />
-</ItemGroup>
 
 </Project>
