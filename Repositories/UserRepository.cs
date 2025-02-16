@@ -18,13 +18,37 @@ namespace zChecklist.Repositories
             return await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
         }
 
-        public async Task AddUserAsync(User user)
+        public async Task<Result<User>> AddUserAsync(User user)
         {
-            user.CreatedAt = DateTime.UtcNow;
-            user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password);
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
+            try
+            {
+                user.CreatedAt = DateTime.UtcNow;
+                user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password);
+
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
+
+                return new Result<User>
+                {
+                    Success = true,
+                    Model = user,
+                    Message = "Account successfully created."
+                };
+            }
+            catch (Exception ex)
+            {
+                var message = ex.InnerException != null && ex.InnerException.Message.Contains("Duplicate", StringComparison.OrdinalIgnoreCase)
+                    ? "A user with this email already exists. Please login or use a different email address."
+                    : ex.Message;
+                return new Result<User>
+                {
+                    Success = false,
+                    Model = null,
+                    Message = $"Error adding account: {message}"
+                };
+            }
         }
+
 
         public async Task UpdateUserAsync(User user)
         {

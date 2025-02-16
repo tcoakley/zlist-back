@@ -24,10 +24,14 @@ namespace zChecklist.Controllers
         }
 
         [HttpPost("AddUser")]
-        public async Task<IActionResult> AddUser(User user)
+        public async Task<IActionResult> AddUser([FromBody] User user)
         {
-            await _userRepository.AddUserAsync(user);
-            return Ok();
+            var result = await _userRepository.AddUserAsync(user);
+
+            if (result.Success)
+                return Ok(result);
+            else
+                return BadRequest(result);
         }
 
         [HttpPut("{username}")]
