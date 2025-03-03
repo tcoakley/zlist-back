@@ -3,7 +3,7 @@ using System.Security.Claims;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
-namespace zListBack.Services
+namespace zChecklist.Services
 {
     public static class JwtTokenGenerator
     {

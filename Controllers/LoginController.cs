@@ -1,10 +1,9 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using zListBack.Services;
+using zChecklist.Services;
 using zChecklist.Repositories;
 using zChecklist.Models;
-using zListBack.Models;
 
-namespace zListBack.Controllers
+namespace zChecklist.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
@@ -12,11 +11,13 @@ namespace zListBack.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly UserRepository _userRepository;
+        private readonly EmailService _emailService;
 
-        public LoginController(IConfiguration configuration, UserRepository userRepository)
+        public LoginController(IConfiguration configuration, UserRepository userRepository, EmailService emailService)
         {
             _configuration = configuration;
             _userRepository = userRepository;
+            _emailService = emailService;
         }
 
         [HttpPost]
@@ -35,6 +36,24 @@ namespace zListBack.Controllers
                 Token = token,
                 User = result.Model
             });
+        }
+
+        [HttpPost("forgotPassword")]
+        public async Task<IActionResult> ForgotPassword([FromBody] string email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                return BadRequest("Email is required.");
+            }
+
+            var result = await _userRepository.GetUserByEmailAsync(email);
+            if (!result.Success)
+            {
+                return NotFound("User not found.");
+            }
+
+            await _emailService.SendForgotPasswordEmail(email);
+            return Ok("If the email is registered, you will receive a password reset email shortly.");
         }
 
     }

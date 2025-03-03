@@ -1,4 +1,4 @@
-﻿namespace zListBack.Models
+﻿namespace zChecklist.Models
 {
     public class LoginRequestModel
     {

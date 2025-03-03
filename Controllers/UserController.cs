@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using zChecklist.Models;
 using zChecklist.Repositories;
 
@@ -6,6 +7,7 @@ namespace zChecklist.Controllers
 {
     [ApiController]
     [Route("api/users")]
+    [Authorize]
     public class UserController : ControllerBase
     {
         private readonly UserRepository _userRepository;
@@ -16,33 +18,23 @@ namespace zChecklist.Controllers
         }
 
         [HttpGet("{email}")]
-        public async Task<IActionResult> GetUser(string email)
+        public async Task<Result<User>> GetUser(string email)
         {
-            var user = await _userRepository.GetUserByEmailAsync(email);
-            if (user == null) return NotFound("User not found");
-            return Ok(user);
+            return await _userRepository.GetUserByEmailAsync(email);
         }
 
         [HttpPost("AddUser")]
-        public async Task<IActionResult> AddUser([FromBody] User user)
+        [AllowAnonymous]
+        public async Task<Result<User>> AddUser([FromBody] User user)
         {
-            var result = await _userRepository.AddUserAsync(user);
+            return await _userRepository.AddUserAsync(user);
 
-            if (result.Success)
-                return Ok(result);
-            else
-                return BadRequest(result);
         }
 
-        [HttpPut("{username}")]
-        public async Task<IActionResult> UpdateUser(string username, User updatedUser)
+        [HttpPut("UpdateUser")]
+        public async Task<Result> UpdateUser([FromBody] User updatedUser)
         {
-            var user = await _userRepository.GetUserByEmailAsync(username);
-            if (user == null) return NotFound("User not found");
-
-            user.Email = updatedUser.Email;
-            await _userRepository.UpdateUserAsync(user);
-            return NoContent();
+            return await _userRepository.UpdateUserAsync(updatedUser);
         }
 
     }
