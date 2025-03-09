@@ -88,12 +88,78 @@ namespace zChecklist.Repositories
         public async Task<Result<User>> CheckLoginAsync(string email, string password)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-            if (user == null || !BCrypt.Net.BCrypt.Verify(password, user.Password))
+            if (user == null)
             {
                 return Result<User>.Fail("Invalid email or password");
             }
-            return Result<User>.Ok(user);
+
+            if (BCrypt.Net.BCrypt.Verify(password, user.Password))
+            {
+                return Result<User>.Ok(user);
+            }
+
+            if (!string.IsNullOrEmpty(user.ResetPassword) && user.ResetPassword == password)
+            {
+                user.Password = BCrypt.Net.BCrypt.HashPassword(password);
+                user.ResetPassword = null; 
+
+                _context.Users.Update(user);
+                await _context.SaveChangesAsync();
+
+                return Result<User>.Ok(user);
+            }
+
+            return Result<User>.Fail("Invalid email or password");
+        }
+
+
+        public async Task<Result<string>> GenerateResetPassword(string email)
+        {
+            var result = await GetUserByEmailAsync(email);
+            if (!result.Success)
+            {
+                return Result<string>.Fail("user not found");
+            }
+            var user = result.Model as User;
+            user!.ResetPassword = GeneratePassword();
+            _context.Users.Update(user);
+            try
+            {
+                await _context.SaveChangesAsync();
+                return Result<string>.Ok(user.ResetPassword);
+            }
+            catch (Exception ex)
+            {
+                return Result<string>.Fail(ex.Message);
+            }
 
         }
+
+
+        private string GeneratePassword()
+        {
+            const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            const string lower = "abcdefghijklmnopqrstuvwxyz";
+            const string digits = "0123456789";
+            const string special = "!@#$%^&*";
+            const string allChars = upper + lower + digits + special;
+
+            Random random = new Random();
+            int length = random.Next(5, 11);
+
+            string password =
+                upper[random.Next(upper.Length)].ToString() +
+                lower[random.Next(lower.Length)].ToString() +
+                digits[random.Next(digits.Length)].ToString() +
+                special[random.Next(special.Length)].ToString();
+
+            for (int i = password.Length; i < length; i++)
+            {
+                password += allChars[random.Next(allChars.Length)];
+            }
+
+            return new string(password.OrderBy(_ => random.Next()).ToArray());
+        }
+
     }
 }

@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Net;
 using System.Net.Mail;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration;
+using zChecklist.Models;
+using zChecklist.Repositories;
 
 namespace zChecklist.Services
 {
@@ -13,20 +13,28 @@ namespace zChecklist.Services
         private readonly int _smtpPort;
         private readonly string _senderEmail;
         private readonly string _senderPassword;
+        private readonly UserRepository _userRepository;
 
-        public EmailService(IConfiguration configuration)
+        public EmailService(IConfiguration configuration, UserRepository userRepository)
         {
             var emailSettings = configuration.GetSection("EmailSettings");
-            _smtpServer = emailSettings["SmtpServer"];
-            _smtpPort = int.Parse(emailSettings["SmtpPort"]);
-            _senderEmail = emailSettings["SenderEmail"];
-            _senderPassword = emailSettings["SenderPassword"];
+            _smtpServer = emailSettings["SmtpServer"]!;
+            _smtpPort = int.Parse(emailSettings["SmtpPort"]!);
+            _senderEmail = emailSettings["SenderEmail"]!;
+            _senderPassword = Environment.GetEnvironmentVariable("Email_SenderPassword")!;
+            _userRepository = userRepository;
         }
 
-        public async Task SendForgotPasswordEmail(string recipientEmail)
+        public async Task<Result<string>> SendForgotPasswordEmail(string recipientEmail)
         {
             try
             {
+                var result = await _userRepository.GenerateResetPassword(recipientEmail);
+                if (!result.Success) 
+                {
+                    return result;
+                }
+                var passwordReset = result.Model as string;
                 using (var client = new SmtpClient(_smtpServer, _smtpPort))
                 {
                     client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
@@ -36,17 +44,21 @@ namespace zChecklist.Services
                     {
                         From = new MailAddress(_senderEmail),
                         Subject = "Password Reset Request",
-                        Body = $"Password reset information belongs here.",
+                        Body = $@"
+					        <p>We have created a temporary password for you. It is recommended that you change your password once you use it to log in.</p>
+					        <p><strong>Temporary Password: <i>{passwordReset}</i></strong></p>",
                         IsBodyHtml = true
                     };
                     mailMessage.To.Add(recipientEmail);
 
                     await client.SendMailAsync(mailMessage);
+
+                    return Result<string>.Ok("If the email is registered, you will receive a password reset email shortly.");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error sending email: {ex.Message}");
+                return Result<string>.Fail(ex.Message);
             }
         }
     }

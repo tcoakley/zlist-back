@@ -39,22 +39,17 @@ namespace zChecklist.Controllers
         }
 
         [HttpPost("forgotPassword")]
-        public async Task<IActionResult> ForgotPassword([FromBody] string email)
+        public async Task<Result<string>> ForgotPassword([FromBody] ForgotPasswordModel model)
         {
+            var email = model.Email;
             if (string.IsNullOrWhiteSpace(email))
             {
-                return BadRequest("Email is required.");
+                return Result<string>.Fail("Email is required.");
             }
+            return await _emailService.SendForgotPasswordEmail(email);
 
-            var result = await _userRepository.GetUserByEmailAsync(email);
-            if (!result.Success)
-            {
-                return NotFound("User not found.");
-            }
-
-            await _emailService.SendForgotPasswordEmail(email);
-            return Ok("If the email is registered, you will receive a password reset email shortly.");
         }
+
 
     }
 
