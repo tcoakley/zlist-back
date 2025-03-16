@@ -29,7 +29,7 @@ namespace zChecklist.Controllers
                 return Unauthorized(result.Message);
             }
 
-            var token = JwtTokenGenerator.GenerateToken(result.Model!.Email, _configuration);
+            var token = JwtTokenGenerator.GenerateToken(result.Model!, _configuration);   
 
             return Ok(new
             {

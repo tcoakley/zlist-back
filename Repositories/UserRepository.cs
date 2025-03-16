@@ -31,9 +31,21 @@ namespace zChecklist.Repositories
             
         }
 
-        public async Task<User?> GetUserAsync(int id)
+        public async Task<Result<User>> GetUserAsync(int id)
         {
-            return await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
+            try
+            {
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
+                if (user != null)
+                {
+                    return Result<User>.Ok(user);
+                }
+                return Result<User>.Fail($"User not found");
+            }
+            catch (Exception ex)
+            {
+                return Result<User>.Fail(ex.Message);
+            }
         }
 
         public async Task<Result<User>> AddUserAsync(User user)
@@ -57,17 +69,18 @@ namespace zChecklist.Repositories
             }
         }
 
-        public async Task<Result> UpdateUserAsync(User model)
+        public async Task<Result<User>> UpdateUserAsync(User model)
         {
-            var user = await GetUserAsync(model.Id);
-            if (user == null)
+            var result = await GetUserAsync(model.Id);
+            if (!result.Success)
             {
-                return Result.Fail("User not found");
+                return Result<User>.Fail("User not found");
             }
-            user.UpdatedAt = DateTime.UtcNow;
+            var user = result.Model as User;
+            user!.UpdatedAt = DateTime.UtcNow;
             user.Email = model.Email;
             user.FirstName = model.FirstName;
-            user.Lastname = model.Lastname;
+            user.LastName = model.LastName;
             if (model.Password.Length > 0)
             {
                 user.Password = BCrypt.Net.BCrypt.HashPassword(model.Password);
@@ -76,10 +89,10 @@ namespace zChecklist.Repositories
             try
             {
                 await _context.SaveChangesAsync();
-                return Result.Ok();
+                return Result<User>.Ok(user);
             }
             catch (Exception ex) { 
-                return Result.Fail(ex.Message);
+                return Result<User>.Fail(ex.Message);
             }
             
 
