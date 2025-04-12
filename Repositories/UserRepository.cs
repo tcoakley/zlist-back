@@ -106,7 +106,7 @@ namespace zChecklist.Repositories
                 return Result<User>.Fail("Invalid email or password");
             }
 
-            if (BCrypt.Net.BCrypt.Verify(password, user.Password))
+            if (!string.IsNullOrEmpty(user.Password) && BCrypt.Net.BCrypt.Verify(password, user.Password))
             {
                 return Result<User>.Ok(user);
             }

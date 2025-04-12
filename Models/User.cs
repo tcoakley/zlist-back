@@ -6,9 +6,9 @@ namespace zChecklist.Models
     public class User
     {
         public int Id { get; set; }
-        [JsonIgnore]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public string Password { get; set; } = string.Empty;
-        [JsonIgnore]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public string? ResetPassword { get; set; }
         public required string Email { get; set; }
         public string? FirstName { get; set; }
