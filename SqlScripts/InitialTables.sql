@@ -1,3 +1,4 @@
+-- Users
 CREATE TABLE Users (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Email NVARCHAR(256) NOT NULL,
@@ -5,10 +6,55 @@ CREATE TABLE Users (
     ResetPassword NVARCHAR(MAX) NULL,
     FirstName NVARCHAR(100) NULL,
     LastName NVARCHAR(100) NULL,
-    CreatedAt DATETIME NOT NULL DEFAULT GETUTCDATE(),
-    UpdatedAt DATETIME NULL
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 NULL
 );
 
 -- Create a unique index for Email
 CREATE UNIQUE INDEX IX_Users_Email ON Users(Email);
 
+
+-- 1. Lists
+CREATE TABLE Lists (
+	Id INT IDENTITY(1,1) PRIMARY KEY,
+	ListName NVARCHAR(255) NOT NULL,
+	ListDescription NVARCHAR(MAX) NULL,
+	CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+	UpdatedAt DATETIME2 NULL
+);
+
+-- 2. ListItems
+CREATE TABLE ListItems (
+	Id INT IDENTITY(1,1) PRIMARY KEY,
+	ListId INT NOT NULL,
+	ItemName NVARCHAR(255) NOT NULL,
+	ItemDescription NVARCHAR(MAX) NULL,
+	FOREIGN KEY (ListId) REFERENCES Lists(Id)
+);
+
+-- 3. UserLists
+CREATE TABLE UserLists (
+	Id INT IDENTITY(1,1) PRIMARY KEY,
+	UserId INT NOT NULL,
+	ListId INT NOT NULL,
+	FOREIGN KEY (ListId) REFERENCES Lists(Id)
+);
+
+-- 4. ListRuns
+CREATE TABLE ListRuns (
+	Id INT IDENTITY(1,1) PRIMARY KEY,
+	ListId INT NOT NULL,
+	CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+	FOREIGN KEY (ListId) REFERENCES Lists(Id)
+);
+
+-- 5. ListRunItems
+CREATE TABLE ListRunItems (
+	Id INT IDENTITY(1,1) PRIMARY KEY,
+	ListRunId INT NOT NULL,
+	ListItemId INT NOT NULL,
+	CompletedAt DATETIME2 NULL,
+	CompletedBy INT NULL,
+	FOREIGN KEY (ListRunId) REFERENCES ListRuns(Id),
+	FOREIGN KEY (ListItemId) REFERENCES ListItems(Id)
+);
