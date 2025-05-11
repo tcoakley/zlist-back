@@ -2,9 +2,9 @@
 using System.Security.Claims;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using zChecklist.Models;
+using zListBack.Models;
 
-namespace zChecklist.Services
+namespace zListBack.Services
 {
     public static class JwtTokenGenerator
     {

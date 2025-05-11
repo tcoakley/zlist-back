@@ -1,8 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using zChecklist.Data;
-using zChecklist.Models;
+using zListBack.Data;
+using zListBack.Models;
 
-namespace zChecklist.Repositories
+namespace zListBack.Repositories
 {
     public class UserRepository
     {

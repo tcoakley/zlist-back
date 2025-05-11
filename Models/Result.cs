@@ -1,4 +1,4 @@
-﻿namespace zChecklist.Models
+﻿namespace zListBack.Models
 {
     public class Result<T>
     {

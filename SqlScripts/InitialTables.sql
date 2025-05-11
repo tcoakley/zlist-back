@@ -52,9 +52,12 @@ CREATE TABLE ListRuns (
 CREATE TABLE ListRunItems (
 	Id INT IDENTITY(1,1) PRIMARY KEY,
 	ListRunId INT NOT NULL,
-	ListItemId INT NOT NULL,
+	ListItemId INT NULL,
+	ListItemName NVARCHAR(255) NOT NULL,
+	ListItemDescription NVARCHAR(MAX) NULL,
 	CompletedAt DATETIME2 NULL,
 	CompletedBy INT NULL,
 	FOREIGN KEY (ListRunId) REFERENCES ListRuns(Id),
 	FOREIGN KEY (ListItemId) REFERENCES ListItems(Id)
 );
+

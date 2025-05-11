@@ -1,10 +1,10 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
-using zChecklist.Models;
-using zChecklist.Repositories;
+using zListBack.Models;
+using zListBack.Repositories;
 
-namespace zChecklist.Controllers
+namespace zListBack.Controllers
 {
     [ApiController]
     [Route("api/users")]

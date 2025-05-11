@@ -2,10 +2,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using zChecklist.Data;
-using zChecklist.Extensions;
-using zChecklist.Repositories;
-using zChecklist.Services;
+using zListBack.Data;
+using zListBack.Extensions;
+using zListBack.Repositories;
+using zListBack.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 

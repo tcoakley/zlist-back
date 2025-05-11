@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Text.Json.Serialization;
 
-namespace zChecklist.Models
+namespace zListBack.Models
 {
     public class User
     {

@@ -1,9 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using zChecklist.Data;
-using zChecklist.Repositories;
+using zListBack.Data;
+using zListBack.Repositories;
 
-namespace zChecklist.Extensions
+namespace zListBack.Extensions
 {
     public static class ServiceExtensions
     {

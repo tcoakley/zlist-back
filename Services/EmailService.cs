@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Net;
 using System.Net.Mail;
-using zChecklist.Models;
-using zChecklist.Repositories;
+using zListBack.Models;
+using zListBack.Repositories;
 
-namespace zChecklist.Services
+namespace zListBack.Services
 {
     public class EmailService
     {

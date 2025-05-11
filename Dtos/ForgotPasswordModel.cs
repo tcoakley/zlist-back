@@ -1,4 +1,4 @@
-﻿namespace zChecklist.Models
+﻿namespace zListBack.Dtos
 {
     public class ForgotPasswordModel
     {
