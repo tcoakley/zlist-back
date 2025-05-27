@@ -11,11 +11,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddApplicationServices(builder.Configuration);
 
 // Add services to the container.
 builder.Services.AddScoped<EmailService>();
+builder.Services.AddScoped<ListService>();
 
 
 // Configure JWT Authentication

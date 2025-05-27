@@ -14,18 +14,72 @@ namespace zListBack.Repositories
             _context = context;
         }
 
-        public async Task<Result<List>> AddList(List list)
+        public async Task<Result<List>> AddList(List list, int userId)
         {
             try
             {
                 list.CreatedAt = DateTime.UtcNow;
+                list.UpdatedAt = DateTime.UtcNow;
                 _context.Lists.Add(list);
                 await _context.SaveChangesAsync();
+
+                var userList = new UserList
+                {
+                    UserId = userId,
+                    ListId = list.Id
+                };
+
+                _context.UserLists.Add(userList);
+                await _context.SaveChangesAsync();
+
                 return Result<List>.Ok(list);
             }
             catch (Exception ex)
             {
                 return Result<List>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<List>> EditList(List updatedList)
+        {
+            try
+            {
+                var existingList = await _context.Lists.FirstOrDefaultAsync(l => l.Id == updatedList.Id);
+                if (existingList == null)
+                    return Result<List>.Fail("List not found");
+
+                existingList.ListName = updatedList.ListName;
+                existingList.ListDescription = updatedList.ListDescription;
+                existingList.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+                return Result<List>.Ok(existingList);
+            }
+            catch (Exception ex)
+            {
+                return Result<List>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> DeleteList(int listId)
+        {
+            try
+            {
+                var list = await _context.Lists.Include(l => l.Items).FirstOrDefaultAsync(l => l.Id == listId);
+                if (list == null)
+                    return Result<bool>.Fail("List not found");
+
+                var userLists = await _context.UserLists.Where(ul => ul.ListId == listId).ToListAsync();
+                _context.UserLists.RemoveRange(userLists);
+                _context.ListItems.RemoveRange(list.Items);
+                _context.Lists.Remove(list);
+
+                await _context.SaveChangesAsync();
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
             }
         }
 
@@ -40,6 +94,44 @@ namespace zListBack.Repositories
             catch (Exception ex)
             {
                 return Result<ListItem>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<ListItem>> EditListItem(ListItem updatedItem)
+        {
+            try
+            {
+                var existingItem = await _context.ListItems.FirstOrDefaultAsync(i => i.Id == updatedItem.Id);
+                if (existingItem == null)
+                    return Result<ListItem>.Fail("List item not found");
+
+                existingItem.ItemName = updatedItem.ItemName;
+                existingItem.ItemDescription = updatedItem.ItemDescription;
+
+                await _context.SaveChangesAsync();
+                return Result<ListItem>.Ok(existingItem);
+            }
+            catch (Exception ex)
+            {
+                return Result<ListItem>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> DeleteListItem(int itemId)
+        {
+            try
+            {
+                var item = await _context.ListItems.FindAsync(itemId);
+                if (item == null)
+                    return Result<bool>.Fail("List item not found");
+
+                _context.ListItems.Remove(item);
+                await _context.SaveChangesAsync();
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
             }
         }
 
