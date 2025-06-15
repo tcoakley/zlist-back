@@ -12,12 +12,7 @@ namespace zListBack.Mappers
             ListDescription = model.ListDescription,
             CreatedAt = model.CreatedAt,
             UpdatedAt = model.UpdatedAt,
-            Items = model.Items.Select(i => new ListItem
-            {
-                Id = i.Id,
-                ItemName = i.ItemName,
-                ItemDescription = i.ItemDescription
-            }).ToList()
+            Items = model.Items.Select(ListItemMapper.ToEntity).ToList()
         };
 
         public static ListModel ToModel(List entity) => new ListModel
@@ -27,12 +22,7 @@ namespace zListBack.Mappers
             ListDescription = entity.ListDescription,
             CreatedAt = entity.CreatedAt,
             UpdatedAt = entity.UpdatedAt,
-            Items = entity.Items.Select(i => new ListItemModel
-            {
-                Id = i.Id,
-                ItemName = i.ItemName,
-                ItemDescription = i.ItemDescription
-            }).ToList()
+            Items = entity.Items.Select(ListItemMapper.ToModel).ToList()
         };
     }
 }

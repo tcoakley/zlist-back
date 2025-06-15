@@ -125,8 +125,19 @@ namespace zListBack.Repositories
                 if (item == null)
                     return Result<bool>.Fail("List item not found");
 
+                var linkedRunItems = _context.ListRunItems
+                    .Where(r => r.ListItemId == itemId);
+
+                await foreach (var runItem in linkedRunItems.AsAsyncEnumerable())
+                {
+                    runItem.ListItemId = null;
+                }
+
+                await _context.SaveChangesAsync();
+
                 _context.ListItems.Remove(item);
                 await _context.SaveChangesAsync();
+
                 return Result<bool>.Ok(true);
             }
             catch (Exception ex)
@@ -134,6 +145,7 @@ namespace zListBack.Repositories
                 return Result<bool>.Fail(ex.Message);
             }
         }
+
 
         public async Task<Result<List>> GetList(int id)
         {
@@ -214,29 +226,22 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<ListRunItem>> AddListRunItem(ListItemModel model, bool oneTime)
+        public async Task<Result<ListRunItem>> AddListRunItem(int listRunId, ListItem item, bool oneTime)
         {
             try
             {
-                ListItem? item = null;
                 if (!oneTime)
                 {
-                    item = new ListItem
-                    {
-                        ListId = model.ListId,
-                        ItemName = model.ItemName,
-                        ItemDescription = model.ItemDescription
-                    };
                     _context.ListItems.Add(item);
                     await _context.SaveChangesAsync();
                 }
 
                 var listRunItem = new ListRunItem
                 {
-                    ListRunId = model.Id,
-                    ListItemId = item?.Id ?? model.Id,
-                    ListItemName = model.ItemName,
-                    ListItemDescription = model.ItemDescription
+                    ListRunId = listRunId,
+                    ListItemId = oneTime ? null : item.Id,
+                    ListItemName = item.ItemName,
+                    ListItemDescription = item.ItemDescription
                 };
 
                 _context.ListRunItems.Add(listRunItem);
@@ -249,5 +254,7 @@ namespace zListBack.Repositories
                 return Result<ListRunItem>.Fail(ex.Message);
             }
         }
+
+
     }
 }

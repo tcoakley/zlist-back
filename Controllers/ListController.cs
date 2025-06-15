@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using zListBack.Dtos;
 using zListBack.Models;
 using zListBack.Services;
 
@@ -26,27 +27,27 @@ namespace zListBack.Controllers
         }
 
         [HttpPost("AddList")]
-        public async Task<Result<List>> AddList([FromBody] List list)
+        public async Task<Result<ListModel>> AddList([FromBody] ListModel listModel)
         {
-            return await _listService.AddList(list, _userId);
+            return await _listService.AddList(listModel, _userId);
         }
 
         [HttpPost("AddListItem")]
-        public async Task<Result<ListItem>> AddListItem([FromBody] ListItem item)
+        public async Task<Result<ListItemModel>> AddListItem([FromBody] ListItemModel itemModel)
         {
-            return await _listService.AddListItem(item);
+            return await _listService.AddListItem(itemModel);
         }
 
         [HttpPut("EditList")]
-        public async Task<Result<List>> EditList([FromBody] List list)
+        public async Task<Result<ListModel>> EditList([FromBody] ListModel listModel)
         {
-            return await _listService.EditList(list);
+            return await _listService.EditList(listModel);
         }
 
         [HttpPut("EditListItem")]
-        public async Task<Result<ListItem>> EditListItem([FromBody] ListItem item)
+        public async Task<Result<ListItemModel>> EditListItem([FromBody] ListItemModel itemModel)
         {
-            return await _listService.EditListItem(item);
+            return await _listService.EditListItem(itemModel);
         }
 
         [HttpDelete("DeleteListItem/{itemId}")]
@@ -60,5 +61,12 @@ namespace zListBack.Controllers
         {
             return await _listService.DeleteList(listId);
         }
+
+        [HttpPost("CreateListRun/{listId}")]
+        public async Task<Result<ListRunModel>> CreateListRun(int listId)
+        {
+            return await _listService.CreateListRun(listId);
+        }
+
     }
 }

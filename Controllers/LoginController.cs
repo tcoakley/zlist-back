@@ -30,13 +30,14 @@ namespace zListBack.Controllers
                 return Unauthorized(result.Message);
             }
 
-            var token = JwtTokenGenerator.GenerateToken(result.Model!, _configuration);   
+            var token = JwtTokenGenerator.GenerateToken(result.Model!, _configuration);
 
-            return Ok(new
+            return Ok(Result<object>.Ok(new
             {
                 Token = token,
-                User = result.Model
-            });
+                User = UserMapper.ToDto(result.Model!)
+            }));
+
         }
 
         [HttpPost("forgotPassword")]

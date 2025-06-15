@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using zListBack.Models;
 using zListBack.Repositories;
+using zListBack.Dtos;
+using zListBack.Mappers;
 
 namespace zListBack.Controllers
 {
@@ -19,37 +21,46 @@ namespace zListBack.Controllers
         }
 
         [HttpGet("{email}")]
-        public async Task<Result<User>> GetUser(string email)
+        public async Task<Result<UserModel>> GetUser(string email)
         {
-            return await _userRepository.GetUserByEmailAsync(email);
+            var result = await _userRepository.GetUserByEmailAsync(email);
+            return result.Success
+                ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
+                : Result<UserModel>.Fail(result.Message);
         }
 
         [HttpGet("GetUserProfile")]
-        public async Task<Result<User>> GetUserProfile()
+        public async Task<Result<UserModel>> GetUserProfile()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
             {
-                return Result<User>.Fail("User ID not found.");
+                return Result<UserModel>.Fail("User ID not found.");
             }
 
-            return await _userRepository.GetUserAsync(userId);
+            var result = await _userRepository.GetUserAsync(userId);
+            return result.Success
+                ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
+                : Result<UserModel>.Fail(result.Message);
         }
-
 
         [HttpPost("AddUser")]
         [AllowAnonymous]
-        public async Task<Result<User>> AddUser([FromBody] User user)
+        public async Task<Result<UserModel>> AddUser([FromBody] User user)
         {
-            return await _userRepository.AddUserAsync(user);
-
+            var result = await _userRepository.AddUserAsync(user);
+            return result.Success
+                ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
+                : Result<UserModel>.Fail(result.Message);
         }
 
         [HttpPut("UpdateUser")]
-        public async Task<Result<User>> UpdateUser([FromBody] User updatedUser)
+        public async Task<Result<UserModel>> UpdateUser([FromBody] User updatedUser)
         {
-            return await _userRepository.UpdateUserAsync(updatedUser);
+            var result = await _userRepository.UpdateUserAsync(updatedUser);
+            return result.Success
+                ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
+                : Result<UserModel>.Fail(result.Message);
         }
-
     }
 }
