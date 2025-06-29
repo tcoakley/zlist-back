@@ -13,6 +13,18 @@ CREATE TABLE Users (
 -- Create a unique index for Email
 CREATE UNIQUE INDEX IX_Users_Email ON Users(Email);
 
+-- Refresh Token
+CREATE TABLE [dbo].[RefreshTokens] (
+	[Id] INT IDENTITY(1,1) PRIMARY KEY,
+	[UserId] INT NOT NULL,
+	[Token] NVARCHAR(255) NOT NULL,
+	[ExpiresAt] DATETIME NOT NULL,
+	[CreatedAt] DATETIME NOT NULL,
+	[Revoked] BIT NOT NULL DEFAULT 0,
+	CONSTRAINT FK_RefreshTokens_Users FOREIGN KEY (UserId) REFERENCES Users(Id)
+);
+
+
 
 -- 1. Lists
 CREATE TABLE Lists (
@@ -60,4 +72,5 @@ CREATE TABLE ListRunItems (
 	FOREIGN KEY (ListRunId) REFERENCES ListRuns(Id),
 	FOREIGN KEY (ListItemId) REFERENCES ListItems(Id)
 );
+
 

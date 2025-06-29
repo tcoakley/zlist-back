@@ -16,6 +16,8 @@ namespace zListBack.Extensions
             // Register Repositories
             services.AddScoped<UserRepository>();
             services.AddScoped<ListRepository>();
+            services.AddScoped<RefreshTokenRepository>();
+
 
             // Add other services here as the app grows
             return services;

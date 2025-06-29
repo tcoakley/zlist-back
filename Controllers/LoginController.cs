@@ -3,6 +3,8 @@ using zListBack.Services;
 using zListBack.Repositories;
 using zListBack.Models;
 using zListBack.Dtos;
+using zListBack.Utils; 
+using Microsoft.AspNetCore.Http; 
 
 namespace zListBack.Controllers
 {
@@ -13,12 +15,18 @@ namespace zListBack.Controllers
         private readonly IConfiguration _configuration;
         private readonly UserRepository _userRepository;
         private readonly EmailService _emailService;
+        private readonly RefreshTokenRepository _refreshTokenRepository;
 
-        public LoginController(IConfiguration configuration, UserRepository userRepository, EmailService emailService)
+        public LoginController(
+            IConfiguration configuration,
+            UserRepository userRepository,
+            EmailService emailService,
+            RefreshTokenRepository refreshTokenRepository)
         {
             _configuration = configuration;
             _userRepository = userRepository;
             _emailService = emailService;
+            _refreshTokenRepository = refreshTokenRepository;
         }
 
         [HttpPost]
@@ -30,14 +38,41 @@ namespace zListBack.Controllers
                 return Unauthorized(result.Message);
             }
 
-            var token = JwtTokenGenerator.GenerateToken(result.Model!, _configuration);
+            var user = result.Model!;
+            var accessToken = JwtTokenGenerator.GenerateToken(user, _configuration);
+
+
+            var refreshTokenString = TokenHelper.GenerateRefreshToken();
+            var expiration = DateTime.UtcNow.AddYears(5);
+            if (!request.RememberMe)
+            {
+                expiration = DateTime.UtcNow.AddHours(3);
+            }
+            var refreshToken = new RefreshToken
+            {
+                UserId = user.Id,
+                Token = refreshTokenString,
+                ExpiresAt = expiration,
+                CreatedAt = DateTime.UtcNow,
+                Revoked = false
+            };
+
+            await _refreshTokenRepository.AddAsync(refreshToken);
+
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true, 
+                SameSite = SameSiteMode.Strict,
+                Expires = refreshToken.ExpiresAt
+            };
+            Response.Cookies.Append("refreshToken", refreshTokenString, cookieOptions);
 
             return Ok(Result<object>.Ok(new
             {
-                Token = token,
-                User = UserMapper.ToDto(result.Model!)
+                Token = accessToken,
+                User = UserMapper.ToDto(user)
             }));
-
         }
 
         [HttpPost("forgotPassword")]
@@ -49,10 +84,51 @@ namespace zListBack.Controllers
                 return Result<string>.Fail("Email is required.");
             }
             return await _emailService.SendForgotPasswordEmail(email);
-
         }
 
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh()
+        {
+            if (!Request.Cookies.TryGetValue("refreshToken", out var refreshTokenString))
+                return Unauthorized("Refresh token not found.");
+
+            var refreshToken = await _refreshTokenRepository.GetByTokenAsync(refreshTokenString);
+            if (refreshToken == null || refreshToken.ExpiresAt < DateTime.UtcNow || refreshToken.Revoked)
+                return Unauthorized("Invalid or expired refresh token.");
+
+            var user = refreshToken.User;
+            if (user == null)
+                return Unauthorized("User not found.");
+
+            var newAccessToken = JwtTokenGenerator.GenerateToken(user, _configuration);
+
+            var newRefreshTokenString = TokenHelper.GenerateRefreshToken();
+            var newRefreshToken = new RefreshToken
+            {
+                UserId = user.Id,
+                Token = newRefreshTokenString,
+                ExpiresAt = DateTime.UtcNow.AddDays(30),
+                CreatedAt = DateTime.UtcNow,
+                Revoked = false
+            };
+
+            await _refreshTokenRepository.InvalidateAsync(refreshTokenString);
+            await _refreshTokenRepository.AddAsync(newRefreshToken);
+
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = newRefreshToken.ExpiresAt
+            };
+            Response.Cookies.Append("refreshToken", newRefreshTokenString, cookieOptions);
+
+            return Ok(Result<object>.Ok(new
+            {
+                Token = newAccessToken
+            }));
+        }
 
     }
-
 }

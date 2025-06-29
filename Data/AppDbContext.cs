@@ -14,5 +14,7 @@ namespace zListBack.Data
         public DbSet<UserList> UserLists { get; set; }
         public DbSet<ListRun> ListRuns { get; set; }
         public DbSet<ListRunItem> ListRunItems { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
+
     }
 }
