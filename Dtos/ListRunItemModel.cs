@@ -10,6 +10,7 @@ namespace zListBack.Dtos
 
         public string ListItemName { get; set; } = string.Empty;
         public string? ListItemDescription { get; set; }
+        public int SortOrder { get; set; }
 
         public DateTime? CompletedAt { get; set; }
         public int? CompletedBy { get; set; }

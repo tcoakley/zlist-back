@@ -107,6 +107,7 @@ namespace zListBack.Repositories
 
                 existingItem.ItemName = updatedItem.ItemName;
                 existingItem.ItemDescription = updatedItem.ItemDescription;
+                existingItem.SortOrder = updatedItem.SortOrder;
 
                 await _context.SaveChangesAsync();
                 return Result<ListItem>.Ok(existingItem);
@@ -194,7 +195,8 @@ namespace zListBack.Repositories
                     ListRunId = listRun.Id,
                     ListItemId = item.Id,
                     ListItemName = item.ItemName,
-                    ListItemDescription = item.ItemDescription
+                    ListItemDescription = item.ItemDescription,
+                    SortOrder = item.SortOrder,
                 }).ToList();
 
                 _context.ListRunItems.AddRange(runItems);
@@ -241,7 +243,8 @@ namespace zListBack.Repositories
                     ListRunId = listRunId,
                     ListItemId = oneTime ? null : item.Id,
                     ListItemName = item.ItemName,
-                    ListItemDescription = item.ItemDescription
+                    ListItemDescription = item.ItemDescription,
+                    SortOrder = item.SortOrder
                 };
 
                 _context.ListRunItems.Add(listRunItem);

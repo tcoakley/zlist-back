@@ -49,6 +49,7 @@ CREATE TABLE UserLists (
 	Id INT IDENTITY(1,1) PRIMARY KEY,
 	UserId INT NOT NULL,
 	ListId INT NOT NULL,
+	SortOrder INT NOT NULL DEFAULT 0,
 	FOREIGN KEY (ListId) REFERENCES Lists(Id)
 );
 
@@ -67,6 +68,7 @@ CREATE TABLE ListRunItems (
 	ListItemId INT NULL,
 	ListItemName NVARCHAR(255) NOT NULL,
 	ListItemDescription NVARCHAR(MAX) NULL,
+	SortOrder INT NOT NULL DEFAULT 0,
 	CompletedAt DATETIME2 NULL,
 	CompletedBy INT NULL,
 	FOREIGN KEY (ListRunId) REFERENCES ListRuns(Id),
