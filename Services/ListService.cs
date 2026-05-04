@@ -87,24 +87,16 @@ namespace zListBack.Services
                 : Result<ListRunItemModel>.Fail(result.Message ?? "Failed to add list run item.");
         }
 
-        public async Task<Result<ListModel>> EditList(ListModel model)
+        public async Task<Result<bool>> EditList(ListModel model)
         {
             var entity = ListMapper.ToEntity(model);
-            var result = await _listRepository.EditList(entity);
-
-            return result.Success && result.Model != null
-                ? Result<ListModel>.Ok(ListMapper.ToModel(result.Model))
-                : Result<ListModel>.Fail(result.Message ?? "Failed to edit list.");
+            return await _listRepository.EditList(entity);
         }
 
-        public async Task<Result<ListItemModel>> EditListItem(ListItemModel model)
+        public async Task<Result<bool>> EditListItem(ListItemModel model)
         {
             var entity = ListItemMapper.ToEntity(model);
-            var result = await _listRepository.EditListItem(entity);
-
-            return result.Success && result.Model != null
-                ? Result<ListItemModel>.Ok(ListItemMapper.ToModel(result.Model))
-                : Result<ListItemModel>.Fail(result.Message ?? "Failed to edit list item.");
+            return await _listRepository.EditListItem(entity);
         }
 
         public async Task<Result<bool>> DeleteListItem(int itemId)

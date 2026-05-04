@@ -1,46 +1,53 @@
-﻿using Microsoft.EntityFrameworkCore;
-using zListBack.Data;
+using System.Data;
+using Dapper;
 using zListBack.Models;
 
 namespace zListBack.Repositories
 {
     public class UserRepository
     {
-        private readonly AppDbContext _context;
+        private readonly IDbConnection _connection;
 
-        public UserRepository(AppDbContext context)
+        public UserRepository(IDbConnection connection)
         {
-            _context = context;
+            _connection = connection;
         }
 
         public async Task<Result<User>> GetUserByEmailAsync(string email)
         {
             try
             {
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+                const string sql = @"
+                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword, CreatedAt, UpdatedAt
+                    FROM Users
+                    WHERE Email = @Email;";
+
+                var user = await _connection.QuerySingleOrDefaultAsync<User>(sql, new { Email = email });
                 if (user == null)
-                {
                     return Result<User>.Fail("User not found");
-                }
+
                 return Result<User>.Ok(user);
             }
             catch (Exception ex)
             {
                 return Result<User>.Fail(ex.Message);
             }
-            
         }
 
         public async Task<Result<User>> GetUserAsync(int id)
         {
             try
             {
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == id);
-                if (user != null)
-                {
-                    return Result<User>.Ok(user);
-                }
-                return Result<User>.Fail($"User not found");
+                const string sql = @"
+                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword, CreatedAt, UpdatedAt
+                    FROM Users
+                    WHERE Id = @Id;";
+
+                var user = await _connection.QuerySingleOrDefaultAsync<User>(sql, new { Id = id });
+                if (user == null)
+                    return Result<User>.Fail("User not found");
+
+                return Result<User>.Ok(user);
             }
             catch (Exception ex)
             {
@@ -52,102 +59,164 @@ namespace zListBack.Repositories
         {
             try
             {
-                user.CreatedAt = DateTime.UtcNow;
-                user.Password = BCrypt.Net.BCrypt.HashPassword(user.Password);
+                const string sql = @"
+                    INSERT INTO Users (Email, FirstName, LastName, Password, CreatedAt)
+                    OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
+                           INSERTED.Password, INSERTED.ResetPassword, INSERTED.CreatedAt, INSERTED.UpdatedAt
+                    VALUES (@Email, @FirstName, @LastName, @Password, @CreatedAt);";
 
-                _context.Users.Add(user);
-                await _context.SaveChangesAsync();
-                return Result<User>.Ok(user, "Account Successfully created");
+                var inserted = await _connection.QuerySingleAsync<User>(
+                    sql,
+                    new
+                    {
+                        user.Email,
+                        user.FirstName,
+                        user.LastName,
+                        Password = BCrypt.Net.BCrypt.HashPassword(user.Password),
+                        CreatedAt = DateTime.UtcNow
+                    }
+                );
+
+                return Result<User>.Ok(inserted, "Account Successfully created");
             }
             catch (Exception ex)
             {
-                var message = ex.InnerException != null && ex.InnerException.Message.Contains("Duplicate", StringComparison.OrdinalIgnoreCase)
+                var isDuplicate = ex.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) ||
+                                  (ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true);
+                var message = isDuplicate
                     ? "A user with this email already exists. Please login or use a different email address."
                     : ex.Message;
                 return Result<User>.Fail(message);
-
             }
         }
 
         public async Task<Result<User>> UpdateUserAsync(User model)
         {
-            var result = await GetUserAsync(model.Id);
-            if (!result.Success)
-            {
-                return Result<User>.Fail("User not found");
-            }
-            var user = result.Model as User;
-            user!.UpdatedAt = DateTime.UtcNow;
-            user.Email = model.Email;
-            user.FirstName = model.FirstName;
-            user.LastName = model.LastName;
-            if (model.Password.Length > 0)
-            {
-                user.Password = BCrypt.Net.BCrypt.HashPassword(model.Password);
-            }
-            _context.Users.Update(user);
             try
             {
-                await _context.SaveChangesAsync();
-                return Result<User>.Ok(user);
+                if (model.Password.Length > 0)
+                {
+                    const string sql = @"
+                        UPDATE Users
+                        SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
+                            Password = @Password, UpdatedAt = GETUTCDATE()
+                        OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
+                               INSERTED.CreatedAt, INSERTED.UpdatedAt
+                        WHERE Id = @Id;";
+
+                    var updated = await _connection.QuerySingleOrDefaultAsync<User>(
+                        sql,
+                        new
+                        {
+                            model.Id,
+                            model.Email,
+                            model.FirstName,
+                            model.LastName,
+                            Password = BCrypt.Net.BCrypt.HashPassword(model.Password)
+                        }
+                    );
+
+                    if (updated == null)
+                        return Result<User>.Fail("User not found");
+
+                    return Result<User>.Ok(updated);
+                }
+                else
+                {
+                    const string sql = @"
+                        UPDATE Users
+                        SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
+                            UpdatedAt = GETUTCDATE()
+                        OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
+                               INSERTED.CreatedAt, INSERTED.UpdatedAt
+                        WHERE Id = @Id;";
+
+                    var updated = await _connection.QuerySingleOrDefaultAsync<User>(
+                        sql,
+                        new
+                        {
+                            model.Id,
+                            model.Email,
+                            model.FirstName,
+                            model.LastName
+                        }
+                    );
+
+                    if (updated == null)
+                        return Result<User>.Fail("User not found");
+
+                    return Result<User>.Ok(updated);
+                }
             }
-            catch (Exception ex) { 
+            catch (Exception ex)
+            {
                 return Result<User>.Fail(ex.Message);
             }
-            
-
         }
 
         public async Task<Result<User>> CheckLoginAsync(string email, string password)
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-            if (user == null)
+            try
             {
+                const string sql = @"
+                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword, CreatedAt, UpdatedAt
+                    FROM Users
+                    WHERE Email = @Email;";
+
+                var user = await _connection.QuerySingleOrDefaultAsync<User>(sql, new { Email = email });
+                if (user == null)
+                    return Result<User>.Fail("Invalid email or password");
+
+                if (!string.IsNullOrEmpty(user.Password) && BCrypt.Net.BCrypt.Verify(password, user.Password))
+                    return Result<User>.Ok(user);
+
+                if (!string.IsNullOrEmpty(user.ResetPassword) && user.ResetPassword == password)
+                {
+                    const string updateSql = @"
+                        UPDATE Users
+                        SET Password = @Password, ResetPassword = NULL, UpdatedAt = GETUTCDATE()
+                        WHERE Id = @Id;";
+
+                    user.Password = BCrypt.Net.BCrypt.HashPassword(password);
+                    user.ResetPassword = null;
+                    await _connection.ExecuteAsync(updateSql, new { Password = user.Password, user.Id });
+
+                    return Result<User>.Ok(user);
+                }
+
                 return Result<User>.Fail("Invalid email or password");
             }
-
-            if (!string.IsNullOrEmpty(user.Password) && BCrypt.Net.BCrypt.Verify(password, user.Password))
+            catch (Exception ex)
             {
-                return Result<User>.Ok(user);
+                return Result<User>.Fail(ex.Message);
             }
-
-            if (!string.IsNullOrEmpty(user.ResetPassword) && user.ResetPassword == password)
-            {
-                user.Password = BCrypt.Net.BCrypt.HashPassword(password);
-                user.ResetPassword = null; 
-
-                _context.Users.Update(user);
-                await _context.SaveChangesAsync();
-
-                return Result<User>.Ok(user);
-            }
-
-            return Result<User>.Fail("Invalid email or password");
         }
-
 
         public async Task<Result<string>> GenerateResetPassword(string email)
         {
-            var result = await GetUserByEmailAsync(email);
-            if (!result.Success)
-            {
-                return Result<string>.Fail("user not found");
-            }
-            var user = result.Model as User;
-            user!.ResetPassword = GeneratePassword();
-            _context.Users.Update(user);
             try
             {
-                await _context.SaveChangesAsync();
-                return Result<string>.Ok(user.ResetPassword);
+                var result = await GetUserByEmailAsync(email);
+                if (!result.Success)
+                    return Result<string>.Fail("user not found");
+
+                var user = result.Model as User;
+                var resetPassword = GeneratePassword();
+
+                const string sql = @"
+                    UPDATE Users
+                    SET ResetPassword = @ResetPassword, UpdatedAt = GETUTCDATE()
+                    WHERE Id = @Id;";
+
+                await _connection.ExecuteAsync(sql, new { ResetPassword = resetPassword, user!.Id });
+
+                return Result<string>.Ok(resetPassword);
             }
             catch (Exception ex)
             {
                 return Result<string>.Fail(ex.Message);
             }
-
         }
-
 
         private string GeneratePassword()
         {
@@ -173,6 +242,5 @@ namespace zListBack.Repositories
 
             return new string(password.OrderBy(_ => random.Next()).ToArray());
         }
-
     }
 }

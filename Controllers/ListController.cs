@@ -39,13 +39,13 @@ namespace zListBack.Controllers
         }
 
         [HttpPut("EditList")]
-        public async Task<Result<ListModel>> EditList([FromBody] ListModel listModel)
+        public async Task<Result<bool>> EditList([FromBody] ListModel listModel)
         {
             return await _listService.EditList(listModel);
         }
 
         [HttpPut("EditListItem")]
-        public async Task<Result<ListItemModel>> EditListItem([FromBody] ListItemModel itemModel)
+        public async Task<Result<bool>> EditListItem([FromBody] ListItemModel itemModel)
         {
             return await _listService.EditListItem(itemModel);
         }

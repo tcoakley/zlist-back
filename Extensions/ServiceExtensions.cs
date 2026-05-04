@@ -1,6 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using zListBack.Data;
+using System.Data;
+using Microsoft.Data.SqlClient;
 using zListBack.Repositories;
 
 namespace zListBack.Extensions
@@ -9,17 +8,15 @@ namespace zListBack.Extensions
     {
         public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
         {
-            // Register DbContext
-            services.AddDbContext<AppDbContext>(options =>
-                options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
+            // Register Dapper connection
+            services.AddScoped<IDbConnection>(sp =>
+                new SqlConnection(configuration.GetConnectionString("DefaultConnection")));
 
             // Register Repositories
             services.AddScoped<UserRepository>();
             services.AddScoped<ListRepository>();
             services.AddScoped<RefreshTokenRepository>();
 
-
-            // Add other services here as the app grows
             return services;
         }
     }

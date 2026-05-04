@@ -1,49 +1,78 @@
-﻿using System;
-using System.Threading.Tasks;
-using System.Linq;
-using Microsoft.EntityFrameworkCore;
-using zListBack.Data;
+using System.Data;
+using Dapper;
 using zListBack.Models;
 
 namespace zListBack.Repositories
 {
     public class RefreshTokenRepository
     {
-        private readonly AppDbContext _context;
+        private readonly IDbConnection _connection;
 
-        public RefreshTokenRepository(AppDbContext context)
+        public RefreshTokenRepository(IDbConnection connection)
         {
-            _context = context;
+            _connection = connection;
         }
 
         public async Task AddAsync(RefreshToken refreshToken)
         {
-            _context.RefreshTokens.Add(refreshToken);
-            await _context.SaveChangesAsync();
+            const string sql = @"
+                INSERT INTO RefreshTokens (UserId, Token, ExpiresAt, CreatedAt, Revoked)
+                OUTPUT INSERTED.Id
+                VALUES (@UserId, @Token, @ExpiresAt, @CreatedAt, @Revoked);";
+
+            refreshToken.Id = await _connection.ExecuteScalarAsync<int>(
+                sql,
+                new
+                {
+                    refreshToken.UserId,
+                    refreshToken.Token,
+                    refreshToken.ExpiresAt,
+                    refreshToken.CreatedAt,
+                    refreshToken.Revoked
+                }
+            );
         }
 
         public async Task<RefreshToken?> GetByTokenAsync(string token)
         {
-            return await _context.RefreshTokens
-                .Include(rt => rt.User)
-                .FirstOrDefaultAsync(rt => rt.Token == token && !rt.Revoked);
+            const string sql = @"
+                SELECT rt.Id, rt.UserId, rt.Token, rt.ExpiresAt, rt.CreatedAt, rt.Revoked,
+                       u.Id, u.Email, u.FirstName, u.LastName, u.CreatedAt, u.UpdatedAt
+                FROM RefreshTokens rt
+                INNER JOIN Users u ON u.Id = rt.UserId
+                WHERE rt.Token = @Token AND rt.Revoked = 0;";
+
+            var result = await _connection.QueryAsync<RefreshToken, User, RefreshToken>(
+                sql,
+                (refreshToken, user) =>
+                {
+                    refreshToken.User = user;
+                    return refreshToken;
+                },
+                new { Token = token },
+                splitOn: "Id"
+            );
+
+            return result.FirstOrDefault();
         }
 
         public async Task InvalidateAsync(string token)
         {
-            var refreshToken = await _context.RefreshTokens.FirstOrDefaultAsync(rt => rt.Token == token);
-            if (refreshToken != null)
-            {
-                refreshToken.Revoked = true;
-                await _context.SaveChangesAsync();
-            }
+            const string sql = @"
+                UPDATE RefreshTokens
+                SET Revoked = 1
+                WHERE Token = @Token;";
+
+            await _connection.ExecuteAsync(sql, new { Token = token });
         }
 
         public async Task RemoveExpiredTokensAsync()
         {
-            var expiredTokens = _context.RefreshTokens.Where(rt => rt.ExpiresAt < DateTime.UtcNow || rt.Revoked);
-            _context.RefreshTokens.RemoveRange(expiredTokens);
-            await _context.SaveChangesAsync();
+            const string sql = @"
+                DELETE FROM RefreshTokens
+                WHERE ExpiresAt < GETUTCDATE() OR Revoked = 1;";
+
+            await _connection.ExecuteAsync(sql);
         }
     }
 }

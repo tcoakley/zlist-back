@@ -1,36 +1,75 @@
-﻿using Microsoft.EntityFrameworkCore;
-using zListBack.Data;
+﻿using System.Data;
+using Dapper;
 using zListBack.Models;
-using zListBack.Dtos;
+
 
 namespace zListBack.Repositories
 {
     public class ListRepository
     {
-        private readonly AppDbContext _context;
+        private readonly IDbConnection _connection;
 
-        public ListRepository(AppDbContext context)
+        public ListRepository(IDbConnection connection)
         {
-            _context = context;
+            _connection = connection;
         }
 
         public async Task<Result<List>> AddList(List list, int userId)
         {
             try
             {
-                list.CreatedAt = DateTime.UtcNow;
-                list.UpdatedAt = DateTime.UtcNow;
-                _context.Lists.Add(list);
-                await _context.SaveChangesAsync();
+                const string insertListSql = @"
+			INSERT INTO Lists
+			(
+				ListName,
+				ListDescription
+			)
+			OUTPUT INSERTED.Id, INSERTED.CreatedAt, INSERTED.UpdatedAt
+			VALUES
+			(
+				@ListName,
+				@ListDescription
+			);";
 
-                var userList = new UserList
-                {
-                    UserId = userId,
-                    ListId = list.Id
-                };
+                const string insertUserListSql = @"
+			INSERT INTO UserLists
+			(
+				UserId,
+				ListId
+			)
+			VALUES
+			(
+				@UserId,
+				@ListId
+			);";
 
-                _context.UserLists.Add(userList);
-                await _context.SaveChangesAsync();
+                using var transaction = _connection.BeginTransaction();
+
+                var insertedList = await _connection.QuerySingleAsync<List>(
+                    insertListSql,
+                    new
+                    {
+                        list.ListName,
+                        list.ListDescription
+                    },
+                    transaction
+                );
+
+                list.Id = insertedList.Id;
+                list.CreatedAt = insertedList.CreatedAt;
+                list.UpdatedAt = insertedList.UpdatedAt;
+
+                await _connection.ExecuteAsync(
+                    insertUserListSql,
+                    new
+                    {
+                        UserId = userId,
+                        ListId = list.Id
+                    },
+                    transaction
+                );
+
+                transaction.Commit();
 
                 return Result<List>.Ok(list);
             }
@@ -40,24 +79,36 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<List>> EditList(List updatedList)
+        public async Task<Result<bool>> EditList(List updatedList)
         {
             try
             {
-                var existingList = await _context.Lists.FirstOrDefaultAsync(l => l.Id == updatedList.Id);
-                if (existingList == null)
-                    return Result<List>.Fail("List not found");
+                const string sql = @"
+			UPDATE Lists
+			SET
+				ListName = @ListName,
+				ListDescription = @ListDescription,
+				UpdatedAt = GETUTCDATE()
+			WHERE Id = @Id;";
 
-                existingList.ListName = updatedList.ListName;
-                existingList.ListDescription = updatedList.ListDescription;
-                existingList.UpdatedAt = DateTime.UtcNow;
+                var rowsAffected = await _connection.ExecuteAsync(
+                    sql,
+                    new
+                    {
+                        updatedList.Id,
+                        updatedList.ListName,
+                        updatedList.ListDescription
+                    }
+                );
 
-                await _context.SaveChangesAsync();
-                return Result<List>.Ok(existingList);
+                if (rowsAffected == 0)
+                    return Result<bool>.Fail("List not found");
+
+                return Result<bool>.Ok(true);
             }
             catch (Exception ex)
             {
-                return Result<List>.Fail(ex.Message);
+                return Result<bool>.Fail(ex.Message);
             }
         }
 
@@ -65,16 +116,75 @@ namespace zListBack.Repositories
         {
             try
             {
-                var list = await _context.Lists.Include(l => l.Items).FirstOrDefaultAsync(l => l.Id == listId);
-                if (list == null)
+                const string listExistsSql = @"
+			        SELECT COUNT(1)
+			        FROM Lists
+			        WHERE Id = @ListId;";
+
+                const string deleteUserListsSql = @"
+			        DELETE FROM UserLists
+			        WHERE ListId = @ListId;";
+
+                const string deleteListRunItemsSql = @"
+			        DELETE lri
+			        FROM ListRunItems lri
+			        INNER JOIN ListRuns lr ON lr.Id = lri.ListRunId
+			        WHERE lr.ListId = @ListId;";
+
+                const string deleteListRunsSql = @"
+			        DELETE FROM ListRuns
+			        WHERE ListId = @ListId;";
+
+                const string deleteListItemsSql = @"
+			        DELETE FROM ListItems
+			        WHERE ListId = @ListId;";
+
+                const string deleteListSql = @"
+			        DELETE FROM Lists
+			        WHERE Id = @ListId;";
+
+                var exists = await _connection.ExecuteScalarAsync<int>(
+                    listExistsSql,
+                    new { ListId = listId }
+                );
+
+                if (exists == 0)
                     return Result<bool>.Fail("List not found");
 
-                var userLists = await _context.UserLists.Where(ul => ul.ListId == listId).ToListAsync();
-                _context.UserLists.RemoveRange(userLists);
-                _context.ListItems.RemoveRange(list.Items);
-                _context.Lists.Remove(list);
+                using var transaction = _connection.BeginTransaction();
 
-                await _context.SaveChangesAsync();
+                await _connection.ExecuteAsync(
+                    deleteUserListsSql,
+                    new { ListId = listId },
+                    transaction
+                );
+
+                await _connection.ExecuteAsync(
+                    deleteListRunItemsSql,
+                    new { ListId = listId },
+                    transaction
+                );
+
+                await _connection.ExecuteAsync(
+                    deleteListRunsSql,
+                    new { ListId = listId },
+                    transaction
+                );
+
+                await _connection.ExecuteAsync(
+                    deleteListItemsSql,
+                    new { ListId = listId },
+                    transaction
+                );
+
+                await _connection.ExecuteAsync(
+                    deleteListSql,
+                    new { ListId = listId },
+                    transaction
+                );
+
+                transaction.Commit();
+
                 return Result<bool>.Ok(true);
             }
             catch (Exception ex)
@@ -87,8 +197,36 @@ namespace zListBack.Repositories
         {
             try
             {
-                _context.ListItems.Add(item);
-                await _context.SaveChangesAsync();
+                const string sql = @"
+			        INSERT INTO ListItems
+			        (
+				        ListId,
+				        ItemName,
+				        ItemDescription,
+				        SortOrder
+			        )
+			        OUTPUT INSERTED.Id
+			        VALUES
+			        (
+				        @ListId,
+				        @ItemName,
+				        @ItemDescription,
+				        @SortOrder
+			        );";
+
+                var newId = await _connection.ExecuteScalarAsync<int>(
+                    sql,
+                    new
+                    {
+                        item.ListId,
+                        item.ItemName,
+                        item.ItemDescription,
+                        item.SortOrder
+                    }
+                );
+
+                item.Id = newId;
+
                 return Result<ListItem>.Ok(item);
             }
             catch (Exception ex)
@@ -97,24 +235,37 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<ListItem>> EditListItem(ListItem updatedItem)
+        public async Task<Result<bool>> EditListItem(ListItem updatedItem)
         {
             try
             {
-                var existingItem = await _context.ListItems.FirstOrDefaultAsync(i => i.Id == updatedItem.Id);
-                if (existingItem == null)
-                    return Result<ListItem>.Fail("List item not found");
+                const string sql = @"
+			        UPDATE ListItems
+			        SET
+				        ItemName = @ItemName,
+				        ItemDescription = @ItemDescription,
+				        SortOrder = @SortOrder
+			        WHERE Id = @Id;";
 
-                existingItem.ItemName = updatedItem.ItemName;
-                existingItem.ItemDescription = updatedItem.ItemDescription;
-                existingItem.SortOrder = updatedItem.SortOrder;
+                var rowsAffected = await _connection.ExecuteAsync(
+                    sql,
+                    new
+                    {
+                        updatedItem.Id,
+                        updatedItem.ItemName,
+                        updatedItem.ItemDescription,
+                        updatedItem.SortOrder
+                    }
+                );
 
-                await _context.SaveChangesAsync();
-                return Result<ListItem>.Ok(existingItem);
+                if (rowsAffected == 0)
+                    return Result<bool>.Fail("List item not found");
+
+                return Result<bool>.Ok(true);
             }
             catch (Exception ex)
             {
-                return Result<ListItem>.Fail(ex.Message);
+                return Result<bool>.Fail(ex.Message);
             }
         }
 
@@ -122,22 +273,43 @@ namespace zListBack.Repositories
         {
             try
             {
-                var item = await _context.ListItems.FindAsync(itemId);
-                if (item == null)
+                const string itemExistsSql = @"
+			        SELECT COUNT(1)
+			        FROM ListItems
+			        WHERE Id = @ItemId;";
+
+                const string unlinkRunItemsSql = @"
+			        UPDATE ListRunItems
+			        SET ListItemId = NULL
+			        WHERE ListItemId = @ItemId;";
+
+                const string deleteItemSql = @"
+			        DELETE FROM ListItems
+			        WHERE Id = @ItemId;";
+
+                var exists = await _connection.ExecuteScalarAsync<int>(
+                    itemExistsSql,
+                    new { ItemId = itemId }
+                );
+
+                if (exists == 0)
                     return Result<bool>.Fail("List item not found");
 
-                var linkedRunItems = _context.ListRunItems
-                    .Where(r => r.ListItemId == itemId);
+                using var transaction = _connection.BeginTransaction();
 
-                await foreach (var runItem in linkedRunItems.AsAsyncEnumerable())
-                {
-                    runItem.ListItemId = null;
-                }
+                await _connection.ExecuteAsync(
+                    unlinkRunItemsSql,
+                    new { ItemId = itemId },
+                    transaction
+                );
 
-                await _context.SaveChangesAsync();
+                await _connection.ExecuteAsync(
+                    deleteItemSql,
+                    new { ItemId = itemId },
+                    transaction
+                );
 
-                _context.ListItems.Remove(item);
-                await _context.SaveChangesAsync();
+                transaction.Commit();
 
                 return Result<bool>.Ok(true);
             }
@@ -152,8 +324,43 @@ namespace zListBack.Repositories
         {
             try
             {
-                var list = await _context.Lists.Include(l => l.Items).FirstOrDefaultAsync(l => l.Id == id);
-                return list != null ? Result<List>.Ok(list) : Result<List>.Fail("List not found");
+                const string listSql = @"
+			        SELECT
+				        Id,
+				        ListName,
+				        ListDescription,
+				        CreatedAt,
+				        UpdatedAt
+			        FROM Lists
+			        WHERE Id = @Id;";
+
+                const string itemsSql = @"
+			        SELECT
+				        Id,
+				        ListId,
+				        ItemName,
+				        ItemDescription,
+				        SortOrder
+			        FROM ListItems
+			        WHERE ListId = @ListId
+			        ORDER BY SortOrder, Id;";
+
+                var list = await _connection.QuerySingleOrDefaultAsync<List>(
+                    listSql,
+                    new { Id = id }
+                );
+
+                if (list == null)
+                    return Result<List>.Fail("List not found");
+
+                var items = await _connection.QueryAsync<ListItem>(
+                    itemsSql,
+                    new { ListId = id }
+                );
+
+                list.Items = items.ToList();
+
+                return Result<List>.Ok(list);
             }
             catch (Exception ex)
             {
@@ -165,7 +372,40 @@ namespace zListBack.Repositories
         {
             try
             {
-                var lists = await _context.Lists.Include(l => l.Items).ToListAsync();
+                const string listsSql = @"
+			        SELECT
+				        Id,
+				        ListName,
+				        ListDescription,
+				        CreatedAt,
+				        UpdatedAt
+			        FROM Lists
+			        ORDER BY Id;";
+
+                const string itemsSql = @"
+			        SELECT
+				        Id,
+				        ListId,
+				        ItemName,
+				        ItemDescription,
+				        SortOrder
+			        FROM ListItems
+			        ORDER BY ListId, SortOrder, Id;";
+
+                var lists = (await _connection.QueryAsync<List>(listsSql)).ToList();
+                var items = (await _connection.QueryAsync<ListItem>(itemsSql)).ToList();
+
+                var itemsByListId = items
+                    .GroupBy(i => i.ListId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                foreach (var list in lists)
+                {
+                    list.Items = itemsByListId.TryGetValue(list.Id, out var listItems)
+                        ? listItems
+                        : new List<ListItem>();
+                }
+
                 return Result<List<List>>.Ok(lists);
             }
             catch (Exception ex)
@@ -178,32 +418,107 @@ namespace zListBack.Repositories
         {
             try
             {
-                var list = await _context.Lists.Include(l => l.Items).FirstOrDefaultAsync(l => l.Id == listId);
-                if (list == null)
+                const string listExistsSql = @"
+			        SELECT COUNT(1)
+			        FROM Lists
+			        WHERE Id = @ListId;";
+
+                const string listItemsSql = @"
+			        SELECT
+				        Id,
+				        ListId,
+				        ItemName,
+				        ItemDescription,
+				        SortOrder
+			        FROM ListItems
+			        WHERE ListId = @ListId
+			        ORDER BY SortOrder, Id;";
+
+                const string insertListRunSql = @"
+			        INSERT INTO ListRuns
+			        (
+				        ListId
+			        )
+			        OUTPUT INSERTED.Id, INSERTED.CreatedAt
+			        VALUES
+			        (
+				        @ListId
+			        );";
+
+                const string insertListRunItemSql = @"
+			        INSERT INTO ListRunItems
+			        (
+				        ListRunId,
+				        ListItemId,
+				        ListItemName,
+				        ListItemDescription,
+				        SortOrder
+			        )
+			        OUTPUT INSERTED.Id
+			        VALUES
+			        (
+				        @ListRunId,
+				        @ListItemId,
+				        @ListItemName,
+				        @ListItemDescription,
+				        @SortOrder
+			        );";
+
+                var exists = await _connection.ExecuteScalarAsync<int>(
+                    listExistsSql,
+                    new { ListId = listId }
+                );
+
+                if (exists == 0)
                     return Result<ListRun>.Fail("List not found");
 
-                var listRun = new ListRun
+                var listItems = (await _connection.QueryAsync<ListItem>(
+                    listItemsSql,
+                    new { ListId = listId }
+                )).ToList();
+
+                using var transaction = _connection.BeginTransaction();
+
+                var insertedRun = await _connection.QuerySingleAsync<ListRun>(
+                    insertListRunSql,
+                    new { ListId = listId },
+                    transaction
+                );
+
+                insertedRun.ListId = listId;
+                insertedRun.Items = new List<ListRunItem>();
+
+                foreach (var item in listItems)
                 {
-                    ListId = listId,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _context.ListRuns.Add(listRun);
-                await _context.SaveChangesAsync();
+                    var runItem = new ListRunItem
+                    {
+                        ListRunId = insertedRun.Id,
+                        ListItemId = item.Id,
+                        ListItemName = item.ItemName,
+                        ListItemDescription = item.ItemDescription,
+                        SortOrder = item.SortOrder
+                    };
 
-                var runItems = list.Items.Select(item => new ListRunItem
-                {
-                    ListRunId = listRun.Id,
-                    ListItemId = item.Id,
-                    ListItemName = item.ItemName,
-                    ListItemDescription = item.ItemDescription,
-                    SortOrder = item.SortOrder,
-                }).ToList();
+                    var newRunItemId = await _connection.ExecuteScalarAsync<int>(
+                        insertListRunItemSql,
+                        new
+                        {
+                            runItem.ListRunId,
+                            runItem.ListItemId,
+                            runItem.ListItemName,
+                            runItem.ListItemDescription,
+                            runItem.SortOrder
+                        },
+                        transaction
+                    );
 
-                _context.ListRunItems.AddRange(runItems);
-                await _context.SaveChangesAsync();
+                    runItem.Id = newRunItemId;
+                    insertedRun.Items.Add(runItem);
+                }
 
-                listRun.Items = runItems;
-                return Result<ListRun>.Ok(listRun);
+                transaction.Commit();
+
+                return Result<ListRun>.Ok(insertedRun);
             }
             catch (Exception ex)
             {
@@ -215,10 +530,54 @@ namespace zListBack.Repositories
         {
             try
             {
-                var runs = await _context.ListRuns
-                    .Where(r => r.ListId == listId)
-                    .Include(r => r.Items)
-                    .ToListAsync();
+                const string runsSql = @"
+			        SELECT
+				        Id,
+				        ListId,
+				        CreatedAt
+			        FROM ListRuns
+			        WHERE ListId = @ListId
+			        ORDER BY CreatedAt DESC, Id DESC;";
+
+                const string runItemsSql = @"
+			        SELECT
+				        Id,
+				        ListRunId,
+				        ListItemId,
+				        ListItemName,
+				        ListItemDescription,
+				        SortOrder,
+				        CompletedAt,
+				        CompletedBy
+			        FROM ListRunItems
+			        WHERE ListRunId IN
+			        (
+				        SELECT Id
+				        FROM ListRuns
+				        WHERE ListId = @ListId
+			        )
+			        ORDER BY ListRunId, SortOrder, Id;";
+
+                var runs = (await _connection.QueryAsync<ListRun>(
+                    runsSql,
+                    new { ListId = listId }
+                )).ToList();
+
+                var runItems = (await _connection.QueryAsync<ListRunItem>(
+                    runItemsSql,
+                    new { ListId = listId }
+                )).ToList();
+
+                var itemsByRunId = runItems
+                    .GroupBy(i => i.ListRunId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                foreach (var run in runs)
+                {
+                    run.Items = itemsByRunId.TryGetValue(run.Id, out var items)
+                        ? items
+                        : new List<ListRunItem>();
+                }
 
                 return Result<List<ListRun>>.Ok(runs);
             }
@@ -232,10 +591,59 @@ namespace zListBack.Repositories
         {
             try
             {
+                const string insertListItemSql = @"
+			        INSERT INTO ListItems
+			        (
+				        ListId,
+				        ItemName,
+				        ItemDescription,
+				        SortOrder
+			        )
+			        OUTPUT INSERTED.Id
+			        VALUES
+			        (
+				        @ListId,
+				        @ItemName,
+				        @ItemDescription,
+				        @SortOrder
+			        );";
+
+                const string insertListRunItemSql = @"
+			        INSERT INTO ListRunItems
+			        (
+				        ListRunId,
+				        ListItemId,
+				        ListItemName,
+				        ListItemDescription,
+				        SortOrder
+			        )
+			        OUTPUT INSERTED.Id
+			        VALUES
+			        (
+				        @ListRunId,
+				        @ListItemId,
+				        @ListItemName,
+				        @ListItemDescription,
+				        @SortOrder
+			        );";
+
+                using var transaction = _connection.BeginTransaction();
+
                 if (!oneTime)
                 {
-                    _context.ListItems.Add(item);
-                    await _context.SaveChangesAsync();
+                    var newListItemId = await _connection.ExecuteScalarAsync<int>(
+                        insertListItemSql,
+                        new
+                        {
+                            item.ListId,
+                            item.ItemName,
+                            item.ItemDescription,
+                            item.SortOrder
+                        },
+                        transaction
+                    );
+
+                    item.Id = newListItemId;
                 }
 
                 var listRunItem = new ListRunItem
@@ -247,8 +655,22 @@ namespace zListBack.Repositories
                     SortOrder = item.SortOrder
                 };
 
-                _context.ListRunItems.Add(listRunItem);
-                await _context.SaveChangesAsync();
+                var newRunItemId = await _connection.ExecuteScalarAsync<int>(
+                    insertListRunItemSql,
+                    new
+                    {
+                        listRunItem.ListRunId,
+                        listRunItem.ListItemId,
+                        listRunItem.ListItemName,
+                        listRunItem.ListItemDescription,
+                        listRunItem.SortOrder
+                    },
+                    transaction
+                );
+
+                listRunItem.Id = newRunItemId;
+
+                transaction.Commit();
 
                 return Result<ListRunItem>.Ok(listRunItem);
             }
