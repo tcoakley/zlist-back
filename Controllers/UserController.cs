@@ -26,7 +26,7 @@ namespace zListBack.Controllers
             var result = await _userRepository.GetUserByEmailAsync(email);
             return result.Success
                 ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
-                : Result<UserModel>.Fail(result.Message);
+                : Result<UserModel>.Fail(result.Message ?? "Failed to retrieve user.");
         }
 
         [HttpGet("GetUserProfile")]
@@ -41,7 +41,7 @@ namespace zListBack.Controllers
             var result = await _userRepository.GetUserAsync(userId);
             return result.Success
                 ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
-                : Result<UserModel>.Fail(result.Message);
+                : Result<UserModel>.Fail(result.Message ?? "Failed to retrieve user profile.");
         }
 
         [HttpPost("AddUser")]
@@ -51,7 +51,7 @@ namespace zListBack.Controllers
             var result = await _userRepository.AddUserAsync(user);
             return result.Success
                 ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
-                : Result<UserModel>.Fail(result.Message);
+                : Result<UserModel>.Fail(result.Message ?? "Failed to add user.");
         }
 
         [HttpPut("UpdateUser")]
@@ -60,7 +60,7 @@ namespace zListBack.Controllers
             var result = await _userRepository.UpdateUserAsync(updatedUser);
             return result.Success
                 ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
-                : Result<UserModel>.Fail(result.Message);
+                : Result<UserModel>.Fail(result.Message ?? "Failed to update user.");
         }
     }
 }

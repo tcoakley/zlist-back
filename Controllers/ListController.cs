@@ -26,6 +26,12 @@ namespace zListBack.Controllers
             }
         }
 
+        [HttpGet("GetLists")]
+        public async Task<Result<List<ListModel>>> GetLists()
+        {
+            return await _listService.GetLists(_userId);
+        }
+
         [HttpPost("AddList")]
         public async Task<Result<ListModel>> AddList([FromBody] ListModel listModel)
         {

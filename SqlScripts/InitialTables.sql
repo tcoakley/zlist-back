@@ -41,6 +41,7 @@ CREATE TABLE ListItems (
 	ListId INT NOT NULL,
 	ItemName NVARCHAR(255) NOT NULL,
 	ItemDescription NVARCHAR(MAX) NULL,
+	SortOrder INT NOT NULL DEFAULT(0),
 	FOREIGN KEY (ListId) REFERENCES Lists(Id)
 );
 

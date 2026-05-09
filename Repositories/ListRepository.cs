@@ -368,32 +368,26 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<List<List>>> GetLists()
+        public async Task<Result<List<List>>> GetLists(int userId)
         {
             try
             {
                 const string listsSql = @"
-			        SELECT
-				        Id,
-				        ListName,
-				        ListDescription,
-				        CreatedAt,
-				        UpdatedAt
-			        FROM Lists
-			        ORDER BY Id;";
+			        SELECT l.Id, l.ListName, l.ListDescription, l.CreatedAt, l.UpdatedAt
+			        FROM Lists l
+			        INNER JOIN UserLists ul ON ul.ListId = l.Id
+			        WHERE ul.UserId = @UserId
+			        ORDER BY l.Id;";
 
                 const string itemsSql = @"
-			        SELECT
-				        Id,
-				        ListId,
-				        ItemName,
-				        ItemDescription,
-				        SortOrder
-			        FROM ListItems
-			        ORDER BY ListId, SortOrder, Id;";
+			        SELECT li.Id, li.ListId, li.ItemName, li.ItemDescription, li.SortOrder
+			        FROM ListItems li
+			        INNER JOIN UserLists ul ON ul.ListId = li.ListId
+			        WHERE ul.UserId = @UserId
+			        ORDER BY li.ListId, li.SortOrder, li.Id;";
 
-                var lists = (await _connection.QueryAsync<List>(listsSql)).ToList();
-                var items = (await _connection.QueryAsync<ListItem>(itemsSql)).ToList();
+                var lists = (await _connection.QueryAsync<List>(listsSql, new { UserId = userId })).ToList();
+                var items = (await _connection.QueryAsync<ListItem>(itemsSql, new { UserId = userId })).ToList();
 
                 var itemsByListId = items
                     .GroupBy(i => i.ListId)

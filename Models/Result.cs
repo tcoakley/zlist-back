@@ -19,7 +19,7 @@
 
     public class Result : Result<object>
     {
-        public static new Result Ok(string? message = null)
+        public static Result Ok(string? message = null)
         {
             return new Result { Success = true, Message = message };
         }

@@ -3,10 +3,15 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using zListBack.Extensions;
 using zListBack.Services;
+using zListBack.Utils;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new NullableDateTimeConverter());
+    });
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthorization();
 

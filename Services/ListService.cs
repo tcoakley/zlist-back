@@ -53,9 +53,9 @@ namespace zListBack.Services
                 : Result<ListModel>.Fail(result.Message ?? "List not found.");
         }
 
-        public async Task<Result<List<ListModel>>> GetLists()
+        public async Task<Result<List<ListModel>>> GetLists(int userId)
         {
-            var result = await _listRepository.GetLists();
+            var result = await _listRepository.GetLists(userId);
             return result.Success && result.Model != null
                 ? Result<List<ListModel>>.Ok(result.Model.Select(ListMapper.ToModel).ToList())
                 : Result<List<ListModel>>.Fail(result.Message ?? "Failed to retrieve lists.");

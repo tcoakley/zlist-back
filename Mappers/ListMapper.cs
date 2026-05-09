@@ -10,7 +10,7 @@ namespace zListBack.Mappers
             Id = model.Id,
             ListName = model.ListName,
             ListDescription = model.ListDescription,
-            CreatedAt = model.CreatedAt,
+            CreatedAt = model.CreatedAt ?? DateTime.UtcNow,
             UpdatedAt = model.UpdatedAt,
             Items = model.Items.Select(ListItemMapper.ToEntity).ToList()
         };

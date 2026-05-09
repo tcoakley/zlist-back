@@ -10,7 +10,11 @@ namespace zListBack.Extensions
         {
             // Register Dapper connection
             services.AddScoped<IDbConnection>(sp =>
-                new SqlConnection(configuration.GetConnectionString("DefaultConnection")));
+            {
+                var conn = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+                conn.Open();
+                return conn;
+            });
 
             // Register Repositories
             services.AddScoped<UserRepository>();
