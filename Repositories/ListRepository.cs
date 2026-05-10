@@ -320,19 +320,21 @@ namespace zListBack.Repositories
         }
 
 
-        public async Task<Result<List>> GetList(int id)
+        public async Task<Result<List>> GetList(int id, int userId)
         {
             try
             {
                 const string listSql = @"
 			        SELECT
-				        Id,
-				        ListName,
-				        ListDescription,
-				        CreatedAt,
-				        UpdatedAt
-			        FROM Lists
-			        WHERE Id = @Id;";
+				        l.Id,
+				        l.ListName,
+				        l.ListDescription,
+				        l.CreatedAt,
+				        l.UpdatedAt
+			        FROM Lists l
+			        INNER JOIN UserLists ul ON ul.ListId = l.Id
+			        WHERE l.Id = @Id
+			        AND ul.UserId = @UserId;";
 
                 const string itemsSql = @"
 			        SELECT
@@ -347,7 +349,7 @@ namespace zListBack.Repositories
 
                 var list = await _connection.QuerySingleOrDefaultAsync<List>(
                     listSql,
-                    new { Id = id }
+                    new { Id = id, UserId = userId }
                 );
 
                 if (list == null)

@@ -45,9 +45,9 @@ namespace zListBack.Services
                 : Result<ListItemModel>.Fail(result.Message ?? "Failed to add list item.");
         }
 
-        public async Task<Result<ListModel>> GetList(int id)
+        public async Task<Result<ListModel>> GetList(int id, int userId)
         {
-            var result = await _listRepository.GetList(id);
+            var result = await _listRepository.GetList(id, userId);
             return result.Success && result.Model != null
                 ? Result<ListModel>.Ok(ListMapper.ToModel(result.Model))
                 : Result<ListModel>.Fail(result.Message ?? "List not found.");
