@@ -68,6 +68,24 @@ namespace zListBack.Controllers
             return await _listService.DeleteList(listId);
         }
 
+        [HttpPut("CompleteListRun/{runId}")]
+        public async Task<Result<bool>> CompleteListRun(int runId)
+        {
+            return await _listService.CompleteListRun(runId, _userId);
+        }
+
+        [HttpPut("SetListRunItemCompletion/{runItemId}")]
+        public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, [FromBody] bool isComplete)
+        {
+            return await _listService.SetListRunItemCompletion(runItemId, isComplete, _userId);
+        }
+
+        [HttpGet("GetListRun/{runId}")]
+        public async Task<Result<ListRunModel>> GetListRun(int runId)
+        {
+            return await _listService.GetListRun(runId);
+        }
+
         [HttpPost("CreateListRun/{listId}")]
         public async Task<Result<ListRunModel>> CreateListRun(int listId)
         {

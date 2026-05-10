@@ -373,31 +373,45 @@ namespace zListBack.Repositories
             try
             {
                 const string listsSql = @"
-			        SELECT l.Id, l.ListName, l.ListDescription, l.CreatedAt, l.UpdatedAt
-			        FROM Lists l
-			        INNER JOIN UserLists ul ON ul.ListId = l.Id
-			        WHERE ul.UserId = @UserId
-			        ORDER BY l.Id;";
+                    SELECT
+                        l.Id,
+                        l.ListName,
+                        l.ListDescription,
+                        l.CreatedAt,
+                        l.UpdatedAt,
+                        COUNT(DISTINCT li.Id) AS TotalItems,
+                        COUNT(DISTINCT lr.Id) AS TotalRuns,
+                        MAX(lr.CreatedAt)     AS LastRun
+                    FROM Lists l
+                    INNER JOIN UserLists ul ON ul.ListId = l.Id
+                    LEFT JOIN ListItems li  ON li.ListId = l.Id
+                    LEFT JOIN ListRuns lr   ON lr.ListId = l.Id
+                    WHERE ul.UserId = @UserId
+                    GROUP BY l.Id, l.ListName, l.ListDescription, l.CreatedAt, l.UpdatedAt
+                    ORDER BY l.Id;";
 
-                const string itemsSql = @"
-			        SELECT li.Id, li.ListId, li.ItemName, li.ItemDescription, li.SortOrder
-			        FROM ListItems li
-			        INNER JOIN UserLists ul ON ul.ListId = li.ListId
-			        WHERE ul.UserId = @UserId
-			        ORDER BY li.ListId, li.SortOrder, li.Id;";
+                const string activeRunsSql = @"
+                    SELECT lr.ListId, MAX(lr.Id) AS ActiveRunId
+                    FROM ListRuns lr
+                    INNER JOIN UserLists ul ON ul.ListId = lr.ListId
+                    WHERE ul.UserId = @UserId
+                    AND EXISTS (
+                        SELECT 1 FROM ListRunItems lri
+                        WHERE lri.ListRunId = lr.Id
+                        AND lri.CompletedAt IS NULL
+                    )
+                    GROUP BY lr.ListId;";
 
                 var lists = (await _connection.QueryAsync<List>(listsSql, new { UserId = userId })).ToList();
-                var items = (await _connection.QueryAsync<ListItem>(itemsSql, new { UserId = userId })).ToList();
+                var activeRuns = (await _connection.QueryAsync(activeRunsSql, new { UserId = userId })).ToList();
 
-                var itemsByListId = items
-                    .GroupBy(i => i.ListId)
-                    .ToDictionary(g => g.Key, g => g.ToList());
+                var activeRunByListId = activeRuns
+                    .ToDictionary(r => (int)r.ListId, r => (int)r.ActiveRunId);
 
                 foreach (var list in lists)
                 {
-                    list.Items = itemsByListId.TryGetValue(list.Id, out var listItems)
-                        ? listItems
-                        : new List<ListItem>();
+                    list.Items = [];
+                    list.ActiveRunId = activeRunByListId.TryGetValue(list.Id, out var runId) ? runId : 0;
                 }
 
                 return Result<List<List>>.Ok(lists);
@@ -513,6 +527,94 @@ namespace zListBack.Repositories
                 transaction.Commit();
 
                 return Result<ListRun>.Ok(insertedRun);
+            }
+            catch (Exception ex)
+            {
+                return Result<ListRun>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> CompleteListRun(int runId, int userId)
+        {
+            try
+            {
+                const string runExistsSql = @"
+                    SELECT COUNT(1) FROM ListRuns WHERE Id = @RunId;";
+
+                const string sql = @"
+                    UPDATE ListRunItems
+                    SET
+                        CompletedAt = GETUTCDATE(),
+                        CompletedBy = @UserId
+                    WHERE ListRunId = @RunId
+                    AND CompletedAt IS NULL;";
+
+                var exists = await _connection.ExecuteScalarAsync<int>(runExistsSql, new { RunId = runId });
+                if (exists == 0)
+                    return Result<bool>.Fail("List run not found");
+
+                await _connection.ExecuteAsync(sql, new { RunId = runId, UserId = userId });
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
+        {
+            try
+            {
+                const string sql = @"
+                    UPDATE ListRunItems
+                    SET
+                        CompletedAt = CASE WHEN @IsComplete = 1 THEN GETUTCDATE() ELSE NULL END,
+                        CompletedBy = CASE WHEN @IsComplete = 1 THEN @UserId ELSE NULL END
+                    WHERE Id = @RunItemId;";
+
+                var rowsAffected = await _connection.ExecuteAsync(sql, new
+                {
+                    RunItemId = runItemId,
+                    IsComplete = isComplete,
+                    UserId = userId
+                });
+
+                if (rowsAffected == 0)
+                    return Result<bool>.Fail("List run item not found");
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<ListRun>> GetListRun(int runId)
+        {
+            try
+            {
+                const string runSql = @"
+                    SELECT Id, ListId, CreatedAt
+                    FROM ListRuns
+                    WHERE Id = @RunId;";
+
+                const string runItemsSql = @"
+                    SELECT Id, ListRunId, ListItemId, ListItemName, ListItemDescription, SortOrder, CompletedAt, CompletedBy
+                    FROM ListRunItems
+                    WHERE ListRunId = @RunId
+                    ORDER BY SortOrder, Id;";
+
+                var run = await _connection.QuerySingleOrDefaultAsync<ListRun>(runSql, new { RunId = runId });
+                if (run == null)
+                    return Result<ListRun>.Fail("List run not found");
+
+                var items = await _connection.QueryAsync<ListRunItem>(runItemsSql, new { RunId = runId });
+                run.Items = items.ToList();
+
+                return Result<ListRun>.Ok(run);
             }
             catch (Exception ex)
             {

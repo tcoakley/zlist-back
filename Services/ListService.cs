@@ -69,6 +69,24 @@ namespace zListBack.Services
                 : Result<ListRunModel>.Fail(result.Message ?? "Failed to create list run.");
         }
 
+        public async Task<Result<bool>> CompleteListRun(int runId, int userId)
+        {
+            return await _listRepository.CompleteListRun(runId, userId);
+        }
+
+        public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
+        {
+            return await _listRepository.SetListRunItemCompletion(runItemId, isComplete, userId);
+        }
+
+        public async Task<Result<ListRunModel>> GetListRun(int runId)
+        {
+            var result = await _listRepository.GetListRun(runId);
+            return result.Success && result.Model != null
+                ? Result<ListRunModel>.Ok(ListRunMapper.ToModel(result.Model))
+                : Result<ListRunModel>.Fail(result.Message ?? "List run not found.");
+        }
+
         public async Task<Result<List<ListRunModel>>> GetListRuns(int listId)
         {
             var result = await _listRepository.GetListRuns(listId);

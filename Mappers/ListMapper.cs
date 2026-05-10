@@ -12,6 +12,10 @@ namespace zListBack.Mappers
             ListDescription = model.ListDescription,
             CreatedAt = model.CreatedAt ?? DateTime.UtcNow,
             UpdatedAt = model.UpdatedAt,
+            ActiveRunId = model.ActiveRunId,
+            TotalRuns = model.TotalRuns,
+            LastRun = model.LastRun,
+            TotalItems = model.TotalItems,
             Items = model.Items.Select(ListItemMapper.ToEntity).ToList()
         };
 
@@ -22,6 +26,10 @@ namespace zListBack.Mappers
             ListDescription = entity.ListDescription,
             CreatedAt = entity.CreatedAt,
             UpdatedAt = entity.UpdatedAt,
+            ActiveRunId = entity.ActiveRunId,
+            TotalRuns = entity.TotalRuns,
+            LastRun = entity.LastRun,
+            TotalItems = entity.TotalItems,
             Items = entity.Items.Select(ListItemMapper.ToModel).ToList()
         };
     }
