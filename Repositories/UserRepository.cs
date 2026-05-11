@@ -18,7 +18,8 @@ namespace zListBack.Repositories
             try
             {
                 const string sql = @"
-                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword, CreatedAt, UpdatedAt
+                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
+                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 
@@ -39,7 +40,8 @@ namespace zListBack.Repositories
             try
             {
                 const string sql = @"
-                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword, CreatedAt, UpdatedAt
+                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
+                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Id = @Id;";
 
@@ -62,7 +64,9 @@ namespace zListBack.Repositories
                 const string sql = @"
                     INSERT INTO Users (Email, FirstName, LastName, Password, CreatedAt)
                     OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
-                           INSERTED.Password, INSERTED.ResetPassword, INSERTED.CreatedAt, INSERTED.UpdatedAt
+                           INSERTED.Password, INSERTED.ResetPassword,
+                           INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
+                           INSERTED.CreatedAt, INSERTED.UpdatedAt
                     VALUES (@Email, @FirstName, @LastName, @Password, @CreatedAt);";
 
                 var inserted = await _connection.QuerySingleAsync<User>(
@@ -99,8 +103,9 @@ namespace zListBack.Repositories
                     const string sql = @"
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
-                            Password = @Password, UpdatedAt = GETUTCDATE()
+                            Password = @Password, IsHelpEnabled = @IsHelpEnabled, UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
+                               INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
                                INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
@@ -112,7 +117,8 @@ namespace zListBack.Repositories
                             model.Email,
                             model.FirstName,
                             model.LastName,
-                            Password = BCrypt.Net.BCrypt.HashPassword(model.Password)
+                            Password = BCrypt.Net.BCrypt.HashPassword(model.Password),
+                            model.IsHelpEnabled
                         }
                     );
 
@@ -126,8 +132,9 @@ namespace zListBack.Repositories
                     const string sql = @"
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
-                            UpdatedAt = GETUTCDATE()
+                            IsHelpEnabled = @IsHelpEnabled, UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
+                               INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
                                INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
@@ -138,7 +145,8 @@ namespace zListBack.Repositories
                             model.Id,
                             model.Email,
                             model.FirstName,
-                            model.LastName
+                            model.LastName,
+                            model.IsHelpEnabled
                         }
                     );
 
@@ -159,7 +167,8 @@ namespace zListBack.Repositories
             try
             {
                 const string sql = @"
-                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword, CreatedAt, UpdatedAt
+                    SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
+                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 

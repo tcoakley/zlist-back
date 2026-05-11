@@ -18,6 +18,7 @@ namespace zListBack.Extensions
 
             // Register Repositories
             services.AddScoped<UserRepository>();
+            services.AddScoped<UserPaymentHistoryRepository>();
             services.AddScoped<ListRepository>();
             services.AddScoped<RefreshTokenRepository>();
 

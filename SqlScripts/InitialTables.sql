@@ -6,12 +6,29 @@ CREATE TABLE Users (
     ResetPassword NVARCHAR(MAX) NULL,
     FirstName NVARCHAR(100) NULL,
     LastName NVARCHAR(100) NULL,
+    Subscription VARCHAR(20) NOT NULL DEFAULT 'free',
+    SubscriptionExpiresAt DATETIME2 NULL,
+    IsHelpEnabled BIT NOT NULL DEFAULT 1,
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     UpdatedAt DATETIME2 NULL
 );
 
 -- Create a unique index for Email
 CREATE UNIQUE INDEX IX_Users_Email ON Users(Email);
+
+-- UserPaymentHistory
+CREATE TABLE UserPaymentHistory (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    UserId INT NOT NULL,
+    StripeEventId VARCHAR(100) NOT NULL,
+    AmountPaid DECIMAL(10,2) NOT NULL,
+    Currency VARCHAR(10) NOT NULL DEFAULT 'usd',
+    PlanType VARCHAR(20) NOT NULL,
+    PaidAt DATETIME2 NOT NULL,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT FK_UserPaymentHistory_Users FOREIGN KEY (UserId) REFERENCES Users(Id),
+    CONSTRAINT UQ_UserPaymentHistory_StripeEventId UNIQUE (StripeEventId)
+);
 
 -- Refresh Token
 CREATE TABLE [dbo].[RefreshTokens] (

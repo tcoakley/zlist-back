@@ -9,6 +9,9 @@ public static class UserMapper
         Email = user.Email,
         FirstName = user.FirstName,
         LastName = user.LastName,
+        Subscription = user.Subscription,
+        SubscriptionExpiresAt = user.SubscriptionExpiresAt,
+        IsHelpEnabled = user.IsHelpEnabled,
         CreatedAt = user.CreatedAt,
         UpdatedAt = user.UpdatedAt
     };

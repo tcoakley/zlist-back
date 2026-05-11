@@ -19,6 +19,8 @@ builder.Services.AddApplicationServices(builder.Configuration);
 
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<ListService>();
+builder.Services.AddScoped<RecaptchaService>();
+builder.Services.AddHttpClient();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

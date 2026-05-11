@@ -43,16 +43,11 @@ namespace zListBack.Controllers
 
 
             var refreshTokenString = TokenHelper.GenerateRefreshToken();
-            var expiration = DateTime.UtcNow.AddYears(5);
-            if (!request.RememberMe)
-            {
-                expiration = DateTime.UtcNow.AddHours(3);
-            }
             var refreshToken = new RefreshToken
             {
                 UserId = user.Id,
                 Token = refreshTokenString,
-                ExpiresAt = expiration,
+                ExpiresAt = DateTime.UtcNow.AddYears(5),
                 CreatedAt = DateTime.UtcNow,
                 Revoked = false
             };
@@ -107,7 +102,7 @@ namespace zListBack.Controllers
             {
                 UserId = user.Id,
                 Token = newRefreshTokenString,
-                ExpiresAt = DateTime.UtcNow.AddDays(30),
+                ExpiresAt = DateTime.UtcNow.AddYears(5),
                 CreatedAt = DateTime.UtcNow,
                 Revoked = false
             };

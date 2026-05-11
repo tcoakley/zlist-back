@@ -5,6 +5,7 @@ using zListBack.Models;
 using zListBack.Repositories;
 using zListBack.Dtos;
 using zListBack.Mappers;
+using zListBack.Services;
 
 namespace zListBack.Controllers
 {
@@ -14,10 +15,12 @@ namespace zListBack.Controllers
     public class UserController : ControllerBase
     {
         private readonly UserRepository _userRepository;
+        private readonly RecaptchaService _recaptchaService;
 
-        public UserController(UserRepository userRepository)
+        public UserController(UserRepository userRepository, RecaptchaService recaptchaService)
         {
             _userRepository = userRepository;
+            _recaptchaService = recaptchaService;
         }
 
         [HttpGet("{email}")]
@@ -46,8 +49,20 @@ namespace zListBack.Controllers
 
         [HttpPost("AddUser")]
         [AllowAnonymous]
-        public async Task<Result<UserModel>> AddUser([FromBody] User user)
+        public async Task<Result<UserModel>> AddUser([FromBody] SignupRequest request)
         {
+            var captchaValid = await _recaptchaService.VerifyAsync(request.CaptchaToken);
+            if (!captchaValid)
+                return Result<UserModel>.Fail("CAPTCHA verification failed. Please try again.");
+
+            var user = new User
+            {
+                Email = request.Email,
+                Password = request.Password,
+                FirstName = request.FirstName,
+                LastName = request.LastName
+            };
+
             var result = await _userRepository.AddUserAsync(user);
             return result.Success
                 ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))

@@ -6,6 +6,9 @@
         public string Email { get; set; } = string.Empty;
         public string? FirstName { get; set; }
         public string? LastName { get; set; }
+        public string Subscription { get; set; } = "free";
+        public DateTime? SubscriptionExpiresAt { get; set; }
+        public bool IsHelpEnabled { get; set; } = true;
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }
