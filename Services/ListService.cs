@@ -126,5 +126,10 @@ namespace zListBack.Services
         {
             return await _listRepository.DeleteList(listId);
         }
+
+        public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId)
+        {
+            return await _listRepository.GetListRunHistory(listId);
+        }
     }
 }

@@ -110,5 +110,11 @@ namespace zListBack.Controllers
             return await _listService.CreateListRun(listId);
         }
 
+        [HttpGet("GetListRunHistory/{listId}")]
+        public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId)
+        {
+            return await _listService.GetListRunHistory(listId);
+        }
+
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using Dapper;
 using zListBack.Models;
+using zListBack.Dtos;
 
 
 namespace zListBack.Repositories
@@ -539,14 +540,6 @@ namespace zListBack.Repositories
                 const string runExistsSql = @"
                     SELECT COUNT(1) FROM ListRuns WHERE Id = @RunId;";
 
-                const string stampItemsSql = @"
-                    UPDATE ListRunItems
-                    SET
-                        CompletedAt = GETUTCDATE(),
-                        CompletedBy = @UserId
-                    WHERE ListRunId = @RunId
-                    AND CompletedAt IS NULL;";
-
                 const string stampRunSql = @"
                     UPDATE ListRuns
                     SET
@@ -558,7 +551,6 @@ namespace zListBack.Repositories
                 if (exists == 0)
                     return Result<bool>.Fail("List run not found");
 
-                await _connection.ExecuteAsync(stampItemsSql, new { RunId = runId, UserId = userId });
                 await _connection.ExecuteAsync(stampRunSql, new { RunId = runId, UserId = userId });
 
                 return Result<bool>.Ok(true);
@@ -688,6 +680,33 @@ namespace zListBack.Repositories
             catch (Exception ex)
             {
                 return Result<List<ListRun>>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId)
+        {
+            try
+            {
+                const string sql = @"
+                    SELECT
+                        lr.Id,
+                        lr.ListId,
+                        lr.CreatedAt,
+                        lr.CompletedAt,
+                        COUNT(lri.Id) AS TotalItems,
+                        SUM(CASE WHEN lri.CompletedAt IS NOT NULL THEN 1 ELSE 0 END) AS CompletedItems
+                    FROM ListRuns lr
+                    LEFT JOIN ListRunItems lri ON lri.ListRunId = lr.Id
+                    WHERE lr.ListId = @ListId
+                    GROUP BY lr.Id, lr.ListId, lr.CreatedAt, lr.CompletedAt
+                    ORDER BY lr.CreatedAt DESC, lr.Id DESC;";
+
+                var history = await _connection.QueryAsync<ListRunHistoryModel>(sql, new { ListId = listId });
+                return Result<List<ListRunHistoryModel>>.Ok(history.ToList());
+            }
+            catch (Exception ex)
+            {
+                return Result<List<ListRunHistoryModel>>.Fail(ex.Message);
             }
         }
 
