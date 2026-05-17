@@ -50,6 +50,18 @@ namespace zListBack.Controllers
             return await _listService.AddListItem(itemModel);
         }
 
+        [HttpPost("AddRunItem")]
+        public async Task<Result<ListRunItemModel>> AddRunItem([FromBody] AddRunItemRequest request)
+        {
+            var model = new ListItemModel
+            {
+                ListId = request.ListId,
+                ItemName = request.ItemName,
+                SortOrder = 9999
+            };
+            return await _listService.AddListRunItem(request.ListRunId, model, request.OneTime);
+        }
+
         [HttpPut("EditList")]
         public async Task<Result<bool>> EditList([FromBody] ListModel listModel)
         {

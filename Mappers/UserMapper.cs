@@ -12,6 +12,7 @@ public static class UserMapper
         Subscription = user.Subscription,
         SubscriptionExpiresAt = user.SubscriptionExpiresAt,
         IsHelpEnabled = user.IsHelpEnabled,
+        SortCompletedToBottom = user.SortCompletedToBottom,
         CreatedAt = user.CreatedAt,
         UpdatedAt = user.UpdatedAt
     };

@@ -397,11 +397,7 @@ namespace zListBack.Repositories
                     FROM ListRuns lr
                     INNER JOIN UserLists ul ON ul.ListId = lr.ListId
                     WHERE ul.UserId = @UserId
-                    AND EXISTS (
-                        SELECT 1 FROM ListRunItems lri
-                        WHERE lri.ListRunId = lr.Id
-                        AND lri.CompletedAt IS NULL
-                    )
+                    AND lr.CompletedAt IS NULL
                     GROUP BY lr.ListId;";
 
                 var lists = (await _connection.QueryAsync<List>(listsSql, new { UserId = userId })).ToList();
@@ -543,7 +539,7 @@ namespace zListBack.Repositories
                 const string runExistsSql = @"
                     SELECT COUNT(1) FROM ListRuns WHERE Id = @RunId;";
 
-                const string sql = @"
+                const string stampItemsSql = @"
                     UPDATE ListRunItems
                     SET
                         CompletedAt = GETUTCDATE(),
@@ -551,11 +547,19 @@ namespace zListBack.Repositories
                     WHERE ListRunId = @RunId
                     AND CompletedAt IS NULL;";
 
+                const string stampRunSql = @"
+                    UPDATE ListRuns
+                    SET
+                        CompletedAt = GETUTCDATE(),
+                        CompletedBy = @UserId
+                    WHERE Id = @RunId;";
+
                 var exists = await _connection.ExecuteScalarAsync<int>(runExistsSql, new { RunId = runId });
                 if (exists == 0)
                     return Result<bool>.Fail("List run not found");
 
-                await _connection.ExecuteAsync(sql, new { RunId = runId, UserId = userId });
+                await _connection.ExecuteAsync(stampItemsSql, new { RunId = runId, UserId = userId });
+                await _connection.ExecuteAsync(stampRunSql, new { RunId = runId, UserId = userId });
 
                 return Result<bool>.Ok(true);
             }
@@ -599,7 +603,7 @@ namespace zListBack.Repositories
             try
             {
                 const string runSql = @"
-                    SELECT Id, ListId, CreatedAt
+                    SELECT Id, ListId, CreatedAt, CompletedAt, CompletedBy
                     FROM ListRuns
                     WHERE Id = @RunId;";
 
@@ -632,10 +636,12 @@ namespace zListBack.Repositories
 			        SELECT
 				        Id,
 				        ListId,
-				        CreatedAt
+				        CreatedAt,
+				        CompletedAt,
+				        CompletedBy
 			        FROM ListRuns
 			        WHERE ListId = @ListId
-			        ORDER BY CreatedAt DESC, Id DESC;";
+			        ORDER BY CreatedAt DESC, ID DESC;";
 
                 const string runItemsSql = @"
 			        SELECT

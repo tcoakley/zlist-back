@@ -12,6 +12,8 @@ namespace zListBack.Mappers
                 Id = model.Id,
                 ListId = model.ListId,
                 CreatedAt = model.CreatedAt,
+                CompletedAt = model.CompletedAt,
+                CompletedBy = model.CompletedBy,
                 Items = model.Items.Select(ListRunItemMapper.ToEntity).ToList()
             };
         }
@@ -23,6 +25,8 @@ namespace zListBack.Mappers
                 Id = entity.Id,
                 ListId = entity.ListId,
                 CreatedAt = entity.CreatedAt,
+                CompletedAt = entity.CompletedAt,
+                CompletedBy = entity.CompletedBy,
                 Items = entity.Items.Select(ListRunItemMapper.ToModel).ToList()
             };
         }

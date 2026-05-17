@@ -9,6 +9,7 @@ CREATE TABLE Users (
     Subscription VARCHAR(20) NOT NULL DEFAULT 'free',
     SubscriptionExpiresAt DATETIME2 NULL,
     IsHelpEnabled BIT NOT NULL DEFAULT 1,
+    SortCompletedToBottom BIT NOT NULL DEFAULT 1,
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     UpdatedAt DATETIME2 NULL
 );
@@ -76,8 +77,13 @@ CREATE TABLE ListRuns (
 	Id INT IDENTITY(1,1) PRIMARY KEY,
 	ListId INT NOT NULL,
 	CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
-	FOREIGN KEY (ListId) REFERENCES Lists(Id)
+	CompletedAt DATETIME2 NULL,
+	CompletedBy INT NULL,
+	FOREIGN KEY (ListId) REFERENCES Lists(Id),
+	CONSTRAINT FK_ListRuns_CompletedBy FOREIGN KEY (CompletedBy) REFERENCES Users(Id)
 );
+
+CREATE INDEX IX_ListRuns_CompletedBy ON ListRuns(CompletedBy);
 
 -- 5. ListRunItems
 CREATE TABLE ListRunItems (

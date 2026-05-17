@@ -19,7 +19,7 @@ namespace zListBack.Repositories
             {
                 const string sql = @"
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
-                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, CreatedAt, UpdatedAt
+                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 
@@ -41,7 +41,7 @@ namespace zListBack.Repositories
             {
                 const string sql = @"
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
-                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, CreatedAt, UpdatedAt
+                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Id = @Id;";
 
@@ -103,10 +103,11 @@ namespace zListBack.Repositories
                     const string sql = @"
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
-                            Password = @Password, IsHelpEnabled = @IsHelpEnabled, UpdatedAt = GETUTCDATE()
+                            Password = @Password, IsHelpEnabled = @IsHelpEnabled,
+                            SortCompletedToBottom = @SortCompletedToBottom, UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
                                INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
-                               INSERTED.CreatedAt, INSERTED.UpdatedAt
+                               INSERTED.SortCompletedToBottom, INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
                     var updated = await _connection.QuerySingleOrDefaultAsync<User>(
@@ -118,7 +119,8 @@ namespace zListBack.Repositories
                             model.FirstName,
                             model.LastName,
                             Password = BCrypt.Net.BCrypt.HashPassword(model.Password),
-                            model.IsHelpEnabled
+                            model.IsHelpEnabled,
+                            model.SortCompletedToBottom
                         }
                     );
 
@@ -132,10 +134,11 @@ namespace zListBack.Repositories
                     const string sql = @"
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
-                            IsHelpEnabled = @IsHelpEnabled, UpdatedAt = GETUTCDATE()
+                            IsHelpEnabled = @IsHelpEnabled, SortCompletedToBottom = @SortCompletedToBottom,
+                            UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
                                INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
-                               INSERTED.CreatedAt, INSERTED.UpdatedAt
+                               INSERTED.SortCompletedToBottom, INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
                     var updated = await _connection.QuerySingleOrDefaultAsync<User>(
@@ -146,7 +149,8 @@ namespace zListBack.Repositories
                             model.Email,
                             model.FirstName,
                             model.LastName,
-                            model.IsHelpEnabled
+                            model.IsHelpEnabled,
+                            model.SortCompletedToBottom
                         }
                     );
 
@@ -168,7 +172,7 @@ namespace zListBack.Repositories
             {
                 const string sql = @"
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
-                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, CreatedAt, UpdatedAt
+                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 
