@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(Remove-Item \"c:\\\\work\\\\zlist\\\\zListBack\\\\Data\\\\AppDbContext.cs\")",
-      "PowerShell(cd c:\\\\work\\\\zlist\\\\zListBack && dotnet build -o \"$env:TEMP\\\\zlistbuild\" 2>&1 | Select-String -Pattern \"error|Error|warning CS\" | Select-Object -First 30)"
-    ]
-  }
-}
