@@ -113,8 +113,9 @@ namespace zListBack.Controllers
             if (result.Success)
             {
                 var initials = RunHub.GetUserInitials(_userId);
+                var displayName = RunHub.GetUserDisplayName(_userId);
                 await _hub.Clients.Group($"run-{request.RunId}")
-                    .SendAsync("ItemToggled", runItemId, request.IsComplete, initials);
+                    .SendAsync("ItemToggled", runItemId, request.IsComplete, initials, displayName);
             }
             return result;
         }
@@ -143,6 +144,12 @@ namespace zListBack.Controllers
         public async Task<Result<List<ListMemberModel>>> GetListMembers(int listId)
         {
             return await _listService.GetListMembers(listId, _userId);
+        }
+
+        [HttpGet("{listId}/invitations")]
+        public async Task<Result<List<ListPendingInviteModel>>> GetPendingInvitations(int listId)
+        {
+            return await _listService.GetPendingInvitations(listId, _userId);
         }
 
         [HttpPost("{listId}/invite")]

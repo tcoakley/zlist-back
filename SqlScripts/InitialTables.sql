@@ -120,4 +120,22 @@ CREATE TABLE ListRunItems (
 	FOREIGN KEY (ListItemId) REFERENCES ListItems(Id)
 );
 
+-- 6. AppVersions
+CREATE TABLE AppVersions (
+	Id         INT           IDENTITY(1,1) PRIMARY KEY,
+	Version    NVARCHAR(20)  NOT NULL,
+	ReleasedAt DATETIME      NOT NULL DEFAULT GETUTCDATE(),
+	Notes      NVARCHAR(MAX) NULL
+);
 
+INSERT INTO AppVersions (Version, ReleasedAt, Notes)
+VALUES (
+	'1.0.0',
+	GETUTCDATE(),
+	'Initial release of zChecklist.
+- Repeatable checklists with full run history
+- Shared lists with member invitations
+- Real-time collaboration with live check/uncheck updates
+- One-time run items
+- Mobile-friendly design'
+);

@@ -16,5 +16,6 @@ namespace zListBack.Models
         public string? ListName { get; set; }
         public string? InvitedByFirstName { get; set; }
         public string? InvitedByLastName { get; set; }
+        public bool HasAccount { get; set; }
     }
 }

@@ -136,12 +136,20 @@ namespace zListBack.Services
 
         public async Task<Result<List<ListMemberModel>>> GetListMembers(int listId, int userId)
         {
-            // Verify the requesting user is a member of the list
             var listResult = await _listRepository.GetList(listId, userId);
             if (!listResult.Success)
                 return Result<List<ListMemberModel>>.Fail("List not found.");
 
             return await _listRepository.GetListMembers(listId);
+        }
+
+        public async Task<Result<List<ListPendingInviteModel>>> GetPendingInvitations(int listId, int userId)
+        {
+            var listResult = await _listRepository.GetList(listId, userId);
+            if (!listResult.Success)
+                return Result<List<ListPendingInviteModel>>.Fail("List not found.");
+
+            return await _listRepository.GetPendingInvitations(listId);
         }
 
         /// <summary>Creates an invitation and returns the invite token on success.</summary>
@@ -186,7 +194,8 @@ namespace zListBack.Services
                 InvitedByName = $"{inv.InvitedByFirstName} {inv.InvitedByLastName}".Trim(),
                 InvitedEmail = inv.InvitedEmail,
                 Status = inv.Status,
-                IsExpired = inv.ExpiresAt < DateTime.UtcNow
+                IsExpired = inv.ExpiresAt < DateTime.UtcNow,
+                HasAccount = inv.HasAccount
             };
 
             return Result<ListInvitationInfoModel>.Ok(model);

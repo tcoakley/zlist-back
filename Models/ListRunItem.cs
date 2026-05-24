@@ -13,6 +13,7 @@
         public DateTime? CompletedAt { get; set; }
         public int? CompletedBy { get; set; }
         public string? CompletedByInitials { get; set; }
+        public string? CompletedByName { get; set; }
     }
 
 

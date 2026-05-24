@@ -8,5 +8,6 @@ namespace zListBack.Dtos
         public string InvitedEmail { get; set; } = string.Empty;
         public string Status { get; set; } = "pending";
         public bool IsExpired { get; set; }
+        public bool HasAccount { get; set; }
     }
 }

@@ -448,7 +448,12 @@ namespace zListBack.Repositories
                             WHEN lri.CompletedBy IS NOT NULL
                             THEN LEFT(ISNULL(u.FirstName, ''), 1) + LEFT(ISNULL(u.LastName, ''), 1)
                             ELSE NULL
-                        END AS CompletedByInitials
+                        END AS CompletedByInitials,
+                        CASE
+                            WHEN lri.CompletedBy IS NOT NULL
+                            THEN ISNULL(u.FirstName, '') + ' ' + ISNULL(u.LastName, '') + ' - ' + ISNULL(u.Email, '')
+                            ELSE NULL
+                        END AS CompletedByName
                     FROM ListRunItems lri
                     LEFT JOIN Users u ON u.Id = lri.CompletedBy
                     WHERE lri.ListRunId = @RunId
@@ -653,7 +658,12 @@ namespace zListBack.Repositories
                             WHEN lri.CompletedBy IS NOT NULL
                             THEN LEFT(ISNULL(u.FirstName, ''), 1) + LEFT(ISNULL(u.LastName, ''), 1)
                             ELSE NULL
-                        END AS CompletedByInitials
+                        END AS CompletedByInitials,
+                        CASE
+                            WHEN lri.CompletedBy IS NOT NULL
+                            THEN ISNULL(u.FirstName, '') + ' ' + ISNULL(u.LastName, '') + ' - ' + ISNULL(u.Email, '')
+                            ELSE NULL
+                        END AS CompletedByName
                     FROM ListRunItems lri
                     LEFT JOIN Users u ON u.Id = lri.CompletedBy
                     WHERE lri.ListRunId = @RunId
@@ -859,6 +869,27 @@ namespace zListBack.Repositories
 
         // ─── Shared list methods ────────────────────────────────────────────────────
 
+        public async Task<Result<System.Collections.Generic.List<ListPendingInviteModel>>> GetPendingInvitations(int listId)
+        {
+            try
+            {
+                const string sql = @"
+                    SELECT
+                        InvitedEmail,
+                        CASE WHEN ExpiresAt < GETUTCDATE() THEN 1 ELSE 0 END AS IsExpired
+                    FROM ListInvitations
+                    WHERE ListId = @ListId AND Status = 'pending'
+                    ORDER BY CreatedAt DESC;";
+
+                var invites = await _connection.QueryAsync<ListPendingInviteModel>(sql, new { ListId = listId });
+                return Result<System.Collections.Generic.List<ListPendingInviteModel>>.Ok(invites.ToList());
+            }
+            catch (Exception ex)
+            {
+                return Result<System.Collections.Generic.List<ListPendingInviteModel>>.Fail(ex.Message);
+            }
+        }
+
         public async Task<Result<System.Collections.Generic.List<ListMemberModel>>> GetListMembers(int listId)
         {
             try
@@ -960,7 +991,9 @@ namespace zListBack.Repositories
                         li.AcceptedByUserId,
                         l.ListName,
                         u.FirstName AS InvitedByFirstName,
-                        u.LastName  AS InvitedByLastName
+                        u.LastName  AS InvitedByLastName,
+                        CASE WHEN EXISTS (SELECT 1 FROM Users WHERE LOWER(Email) = LOWER(li.InvitedEmail))
+                             THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS HasAccount
                     FROM ListInvitations li
                     INNER JOIN Lists l ON l.Id = li.ListId
                     INNER JOIN Users u ON u.Id = li.InvitedByUserId

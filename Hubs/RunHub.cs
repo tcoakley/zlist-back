@@ -9,12 +9,16 @@ namespace zListBack.Hubs
     public class RunHub : Hub
     {
         private static readonly ConcurrentDictionary<int, string> _userInitials = new();
+        private static readonly ConcurrentDictionary<int, string> _userDisplayNames = new();
 
-        public async Task JoinRun(int runId, string initials)
+        public async Task JoinRun(int runId, string initials, string displayName)
         {
             var userId = GetUserId();
             if (userId > 0)
+            {
                 _userInitials[userId] = initials;
+                _userDisplayNames[userId] = displayName;
+            }
             await Groups.AddToGroupAsync(Context.ConnectionId, $"run-{runId}");
         }
 
@@ -23,6 +27,9 @@ namespace zListBack.Hubs
 
         public static string GetUserInitials(int userId) =>
             _userInitials.TryGetValue(userId, out var i) ? i : string.Empty;
+
+        public static string GetUserDisplayName(int userId) =>
+            _userDisplayNames.TryGetValue(userId, out var n) ? n : string.Empty;
 
         private int GetUserId()
         {
