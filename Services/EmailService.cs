@@ -25,6 +25,37 @@ namespace zListBack.Services
             _userRepository = userRepository;
         }
 
+        public async Task<Result<bool>> SendInvitationEmail(string recipientEmail, string listName, string appBaseUrl, string token)
+        {
+            try
+            {
+                var inviteLink = $"{appBaseUrl}/invite/{token}";
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = $"You've been invited to a zChecklist list",
+                    Body = $@"
+                        <p>You've been invited to collaborate on the list <strong>{listName}</strong> in zChecklist.</p>
+                        <p><a href=""{inviteLink}"">Click here to accept the invitation</a></p>
+                        <p>This link expires in 7 days.</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+
+                await client.SendMailAsync(mailMessage);
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         public async Task<Result<string>> SendForgotPasswordEmail(string recipientEmail)
         {
             try

@@ -11,6 +11,7 @@
         public int TotalRuns { get; set; }
         public DateTime? LastRun { get; set; }
         public int TotalItems { get; set; }
+        public bool IsOwner { get; set; }
 
         public List<ListItemModel> Items { get; set; } = new List<ListItemModel>();
     }

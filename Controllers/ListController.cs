@@ -1,7 +1,9 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using System.Security.Claims;
 using zListBack.Dtos;
+using zListBack.Hubs;
 using zListBack.Models;
 using zListBack.Services;
 
@@ -13,11 +15,17 @@ namespace zListBack.Controllers
     public class ListController : ControllerBase
     {
         private readonly ListService _listService;
+        private readonly EmailService _emailService;
+        private readonly IHubContext<RunHub> _hub;
+        private readonly string _appBaseUrl;
         private readonly int _userId;
 
-        public ListController(ListService listService, IHttpContextAccessor httpContextAccessor)
+        public ListController(ListService listService, EmailService emailService, IHubContext<RunHub> hub, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
         {
             _listService = listService;
+            _emailService = emailService;
+            _hub = hub;
+            _appBaseUrl = configuration["AppSettings:BaseUrl"] ?? "https://localhost:4200";
 
             var userIdClaim = httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out _userId))
@@ -59,7 +67,10 @@ namespace zListBack.Controllers
                 ItemName = request.ItemName,
                 SortOrder = 9999
             };
-            return await _listService.AddListRunItem(request.ListRunId, model, request.OneTime);
+            var result = await _listService.AddListRunItem(request.ListRunId, model, request.OneTime);
+            if (result.Success && result.Model != null)
+                await _hub.Clients.Group($"run-{request.ListRunId}").SendAsync("ItemAdded", result.Model);
+            return result;
         }
 
         [HttpPut("EditList")]
@@ -83,19 +94,29 @@ namespace zListBack.Controllers
         [HttpDelete("DeleteList/{listId}")]
         public async Task<Result<bool>> DeleteList(int listId)
         {
-            return await _listService.DeleteList(listId);
+            return await _listService.DeleteList(listId, _userId);
         }
 
         [HttpPut("CompleteListRun/{runId}")]
         public async Task<Result<bool>> CompleteListRun(int runId)
         {
-            return await _listService.CompleteListRun(runId, _userId);
+            var result = await _listService.CompleteListRun(runId, _userId);
+            if (result.Success)
+                await _hub.Clients.Group($"run-{runId}").SendAsync("RunCompleted");
+            return result;
         }
 
         [HttpPut("SetListRunItemCompletion/{runItemId}")]
-        public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, [FromBody] bool isComplete)
+        public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, [FromBody] ToggleRunItemRequest request)
         {
-            return await _listService.SetListRunItemCompletion(runItemId, isComplete, _userId);
+            var result = await _listService.SetListRunItemCompletion(runItemId, request.IsComplete, _userId);
+            if (result.Success)
+            {
+                var initials = RunHub.GetUserInitials(_userId);
+                await _hub.Clients.Group($"run-{request.RunId}")
+                    .SendAsync("ItemToggled", runItemId, request.IsComplete, initials);
+            }
+            return result;
         }
 
         [HttpGet("GetListRun/{runId}")]
@@ -116,5 +137,45 @@ namespace zListBack.Controllers
             return await _listService.GetListRunHistory(listId);
         }
 
+        // ─── Shared list endpoints ───────────────────────────────────────────────────
+
+        [HttpGet("{listId}/members")]
+        public async Task<Result<List<ListMemberModel>>> GetListMembers(int listId)
+        {
+            return await _listService.GetListMembers(listId, _userId);
+        }
+
+        [HttpPost("{listId}/invite")]
+        public async Task<Result<bool>> InviteToList(int listId, [FromBody] InviteRequestModel request)
+        {
+            var listResult = await _listService.GetList(listId, _userId);
+            if (!listResult.Success || listResult.Model == null)
+                return Result<bool>.Fail("List not found.");
+
+            var tokenResult = await _listService.InviteToList(listId, _userId, request.Email);
+            if (!tokenResult.Success || tokenResult.Model == null)
+                return Result<bool>.Fail(tokenResult.Message ?? "Failed to create invitation.");
+
+            await _emailService.SendInvitationEmail(
+                request.Email,
+                listResult.Model.ListName,
+                _appBaseUrl,
+                tokenResult.Model
+            );
+
+            return Result<bool>.Ok(true);
+        }
+
+        [HttpDelete("{listId}/members/{memberId}")]
+        public async Task<Result<bool>> RemoveListMember(int listId, int memberId)
+        {
+            return await _listService.RemoveListMember(listId, _userId, memberId);
+        }
+
+        [HttpDelete("{listId}/leave")]
+        public async Task<Result<bool>> LeaveList(int listId)
+        {
+            return await _listService.LeaveList(listId, _userId);
+        }
     }
 }

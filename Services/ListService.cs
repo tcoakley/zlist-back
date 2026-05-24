@@ -1,4 +1,4 @@
-﻿using zListBack.Models;
+using zListBack.Models;
 using zListBack.Dtos;
 using zListBack.Repositories;
 using zListBack.Mappers;
@@ -122,14 +122,89 @@ namespace zListBack.Services
             return await _listRepository.DeleteListItem(itemId);
         }
 
-        public async Task<Result<bool>> DeleteList(int listId)
+        public async Task<Result<bool>> DeleteList(int listId, int userId)
         {
-            return await _listRepository.DeleteList(listId);
+            return await _listRepository.DeleteList(listId, userId);
         }
 
         public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId)
         {
             return await _listRepository.GetListRunHistory(listId);
+        }
+
+        // ─── Shared list methods ────────────────────────────────────────────────────
+
+        public async Task<Result<List<ListMemberModel>>> GetListMembers(int listId, int userId)
+        {
+            // Verify the requesting user is a member of the list
+            var listResult = await _listRepository.GetList(listId, userId);
+            if (!listResult.Success)
+                return Result<List<ListMemberModel>>.Fail("List not found.");
+
+            return await _listRepository.GetListMembers(listId);
+        }
+
+        /// <summary>Creates an invitation and returns the invite token on success.</summary>
+        public async Task<Result<string>> InviteToList(int listId, int invitingUserId, string email)
+        {
+            // Verify requester is the owner
+            var listResult = await _listRepository.GetList(listId, invitingUserId);
+            if (!listResult.Success || listResult.Model == null)
+                return Result<string>.Fail("List not found.");
+
+            if (!listResult.Model.IsOwner)
+                return Result<string>.Fail("Only the list owner can invite members.");
+
+            var token = Guid.NewGuid().ToString("N");
+            var invitation = new ListInvitation
+            {
+                ListId = listId,
+                InvitedByUserId = invitingUserId,
+                InvitedEmail = email.Trim().ToLower(),
+                Token = token,
+                ExpiresAt = DateTime.UtcNow.AddDays(7)
+            };
+
+            var result = await _listRepository.CreateListInvitation(invitation);
+            if (!result.Success)
+                return Result<string>.Fail(result.Message ?? "Failed to create invitation.");
+
+            return Result<string>.Ok(token);
+        }
+
+        public async Task<Result<ListInvitationInfoModel>> GetListInvitation(string token)
+        {
+            var result = await _listRepository.GetListInvitation(token);
+            if (!result.Success || result.Model == null)
+                return Result<ListInvitationInfoModel>.Fail(result.Message ?? "Invitation not found.");
+
+            var inv = result.Model;
+            var model = new ListInvitationInfoModel
+            {
+                ListId = inv.ListId,
+                ListName = inv.ListName ?? string.Empty,
+                InvitedByName = $"{inv.InvitedByFirstName} {inv.InvitedByLastName}".Trim(),
+                InvitedEmail = inv.InvitedEmail,
+                Status = inv.Status,
+                IsExpired = inv.ExpiresAt < DateTime.UtcNow
+            };
+
+            return Result<ListInvitationInfoModel>.Ok(model);
+        }
+
+        public async Task<Result<bool>> AcceptListInvitation(string token, int userId)
+        {
+            return await _listRepository.AcceptListInvitation(token, userId);
+        }
+
+        public async Task<Result<bool>> RemoveListMember(int listId, int requestingUserId, int memberUserId)
+        {
+            return await _listRepository.RemoveListMember(listId, requestingUserId, memberUserId);
+        }
+
+        public async Task<Result<bool>> LeaveList(int listId, int userId)
+        {
+            return await _listRepository.LeaveList(listId, userId);
         }
     }
 }

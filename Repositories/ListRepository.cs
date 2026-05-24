@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using Dapper;
 using zListBack.Models;
 using zListBack.Dtos;
@@ -33,16 +33,8 @@ namespace zListBack.Repositories
 			);";
 
                 const string insertUserListSql = @"
-			INSERT INTO UserLists
-			(
-				UserId,
-				ListId
-			)
-			VALUES
-			(
-				@UserId,
-				@ListId
-			);";
+			INSERT INTO UserLists (UserId, ListId, IsOwner)
+			VALUES (@UserId, @ListId, 1);";
 
                 using var transaction = _connection.BeginTransaction();
 
@@ -59,6 +51,7 @@ namespace zListBack.Repositories
                 list.Id = insertedList.Id;
                 list.CreatedAt = insertedList.CreatedAt;
                 list.UpdatedAt = insertedList.UpdatedAt;
+                list.IsOwner = true;
 
                 await _connection.ExecuteAsync(
                     insertUserListSql,
@@ -113,14 +106,18 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<bool>> DeleteList(int listId)
+        public async Task<Result<bool>> DeleteList(int listId, int userId)
         {
             try
             {
-                const string listExistsSql = @"
-			        SELECT COUNT(1)
-			        FROM Lists
-			        WHERE Id = @ListId;";
+                const string ownerCheckSql = @"
+			        SELECT IsOwner
+			        FROM UserLists
+			        WHERE ListId = @ListId AND UserId = @UserId;";
+
+                const string deleteInvitationsSql = @"
+			        DELETE FROM ListInvitations
+			        WHERE ListId = @ListId;";
 
                 const string deleteUserListsSql = @"
 			        DELETE FROM UserLists
@@ -144,15 +141,24 @@ namespace zListBack.Repositories
 			        DELETE FROM Lists
 			        WHERE Id = @ListId;";
 
-                var exists = await _connection.ExecuteScalarAsync<int>(
-                    listExistsSql,
-                    new { ListId = listId }
+                var isOwner = await _connection.ExecuteScalarAsync<bool?>(
+                    ownerCheckSql,
+                    new { ListId = listId, UserId = userId }
                 );
 
-                if (exists == 0)
+                if (isOwner == null)
                     return Result<bool>.Fail("List not found");
 
+                if (!isOwner.Value)
+                    return Result<bool>.Fail("Only the list owner can delete a list.");
+
                 using var transaction = _connection.BeginTransaction();
+
+                await _connection.ExecuteAsync(
+                    deleteInvitationsSql,
+                    new { ListId = listId },
+                    transaction
+                );
 
                 await _connection.ExecuteAsync(
                     deleteUserListsSql,
@@ -331,7 +337,8 @@ namespace zListBack.Repositories
 				        l.ListName,
 				        l.ListDescription,
 				        l.CreatedAt,
-				        l.UpdatedAt
+				        l.UpdatedAt,
+				        ul.IsOwner
 			        FROM Lists l
 			        INNER JOIN UserLists ul ON ul.ListId = l.Id
 			        WHERE l.Id = @Id
@@ -371,7 +378,7 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<List<List>>> GetLists(int userId)
+        public async Task<Result<System.Collections.Generic.List<List>>> GetLists(int userId)
         {
             try
             {
@@ -384,14 +391,15 @@ namespace zListBack.Repositories
                         l.UpdatedAt,
                         COUNT(DISTINCT li.Id) AS TotalItems,
                         COUNT(DISTINCT lr.Id) AS TotalRuns,
-                        MAX(lr.CreatedAt)     AS LastRun
+                        MAX(lr.CreatedAt)     AS LastRun,
+                        ul.IsOwner
                     FROM Lists l
                     INNER JOIN UserLists ul ON ul.ListId = l.Id
                     LEFT JOIN ListItems li  ON li.ListId = l.Id
                     LEFT JOIN ListRuns lr   ON lr.ListId = l.Id
                     WHERE ul.UserId = @UserId
-                    GROUP BY l.Id, l.ListName, l.ListDescription, l.CreatedAt, l.UpdatedAt
-                    ORDER BY l.Id;";
+                    GROUP BY l.Id, l.ListName, l.ListDescription, l.CreatedAt, l.UpdatedAt, ul.IsOwner
+                    ORDER BY MAX(lr.CreatedAt) DESC, l.CreatedAt DESC;";
 
                 const string activeRunsSql = @"
                     SELECT lr.ListId, MAX(lr.Id) AS ActiveRunId
@@ -413,11 +421,11 @@ namespace zListBack.Repositories
                     list.ActiveRunId = activeRunByListId.TryGetValue(list.Id, out var runId) ? runId : 0;
                 }
 
-                return Result<List<List>>.Ok(lists);
+                return Result<System.Collections.Generic.List<List>>.Ok(lists);
             }
             catch (Exception ex)
             {
-                return Result<List<List>>.Fail(ex.Message);
+                return Result<System.Collections.Generic.List<List>>.Fail(ex.Message);
             }
         }
 
@@ -425,6 +433,38 @@ namespace zListBack.Repositories
         {
             try
             {
+                const string activeRunSql = @"
+                    SELECT TOP 1 Id, ListId, CreatedAt
+                    FROM ListRuns
+                    WHERE ListId = @ListId AND CompletedAt IS NULL
+                    ORDER BY Id DESC;";
+
+                const string activeRunItemsSql = @"
+                    SELECT
+                        lri.Id, lri.ListRunId, lri.ListItemId,
+                        lri.ListItemName, lri.ListItemDescription, lri.SortOrder,
+                        lri.CompletedAt, lri.CompletedBy,
+                        CASE
+                            WHEN lri.CompletedBy IS NOT NULL
+                            THEN LEFT(ISNULL(u.FirstName, ''), 1) + LEFT(ISNULL(u.LastName, ''), 1)
+                            ELSE NULL
+                        END AS CompletedByInitials
+                    FROM ListRunItems lri
+                    LEFT JOIN Users u ON u.Id = lri.CompletedBy
+                    WHERE lri.ListRunId = @RunId
+                    ORDER BY lri.SortOrder, lri.Id;";
+
+                var existingRun = await _connection.QuerySingleOrDefaultAsync<ListRun>(
+                    activeRunSql, new { ListId = listId });
+
+                if (existingRun != null)
+                {
+                    var existingItems = await _connection.QueryAsync<ListRunItem>(
+                        activeRunItemsSql, new { RunId = existingRun.Id });
+                    existingRun.Items = existingItems.ToList();
+                    return Result<ListRun>.Ok(existingRun);
+                }
+
                 const string listExistsSql = @"
 			        SELECT COUNT(1)
 			        FROM Lists
@@ -493,7 +533,7 @@ namespace zListBack.Repositories
                 );
 
                 insertedRun.ListId = listId;
-                insertedRun.Items = new List<ListRunItem>();
+                insertedRun.Items = new System.Collections.Generic.List<ListRunItem>();
 
                 foreach (var item in listItems)
                 {
@@ -600,10 +640,24 @@ namespace zListBack.Repositories
                     WHERE Id = @RunId;";
 
                 const string runItemsSql = @"
-                    SELECT Id, ListRunId, ListItemId, ListItemName, ListItemDescription, SortOrder, CompletedAt, CompletedBy
-                    FROM ListRunItems
-                    WHERE ListRunId = @RunId
-                    ORDER BY SortOrder, Id;";
+                    SELECT
+                        lri.Id,
+                        lri.ListRunId,
+                        lri.ListItemId,
+                        lri.ListItemName,
+                        lri.ListItemDescription,
+                        lri.SortOrder,
+                        lri.CompletedAt,
+                        lri.CompletedBy,
+                        CASE
+                            WHEN lri.CompletedBy IS NOT NULL
+                            THEN LEFT(ISNULL(u.FirstName, ''), 1) + LEFT(ISNULL(u.LastName, ''), 1)
+                            ELSE NULL
+                        END AS CompletedByInitials
+                    FROM ListRunItems lri
+                    LEFT JOIN Users u ON u.Id = lri.CompletedBy
+                    WHERE lri.ListRunId = @RunId
+                    ORDER BY lri.SortOrder, lri.Id;";
 
                 var run = await _connection.QuerySingleOrDefaultAsync<ListRun>(runSql, new { RunId = runId });
                 if (run == null)
@@ -620,7 +674,7 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<List<ListRun>>> GetListRuns(int listId)
+        public async Task<Result<System.Collections.Generic.List<ListRun>>> GetListRuns(int listId)
         {
             try
             {
@@ -672,18 +726,18 @@ namespace zListBack.Repositories
                 {
                     run.Items = itemsByRunId.TryGetValue(run.Id, out var items)
                         ? items
-                        : new List<ListRunItem>();
+                        : new System.Collections.Generic.List<ListRunItem>();
                 }
 
-                return Result<List<ListRun>>.Ok(runs);
+                return Result<System.Collections.Generic.List<ListRun>>.Ok(runs);
             }
             catch (Exception ex)
             {
-                return Result<List<ListRun>>.Fail(ex.Message);
+                return Result<System.Collections.Generic.List<ListRun>>.Fail(ex.Message);
             }
         }
 
-        public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId)
+        public async Task<Result<System.Collections.Generic.List<ListRunHistoryModel>>> GetListRunHistory(int listId)
         {
             try
             {
@@ -702,11 +756,11 @@ namespace zListBack.Repositories
                     ORDER BY lr.CreatedAt DESC, lr.Id DESC;";
 
                 var history = await _connection.QueryAsync<ListRunHistoryModel>(sql, new { ListId = listId });
-                return Result<List<ListRunHistoryModel>>.Ok(history.ToList());
+                return Result<System.Collections.Generic.List<ListRunHistoryModel>>.Ok(history.ToList());
             }
             catch (Exception ex)
             {
-                return Result<List<ListRunHistoryModel>>.Fail(ex.Message);
+                return Result<System.Collections.Generic.List<ListRunHistoryModel>>.Fail(ex.Message);
             }
         }
 
@@ -803,6 +857,248 @@ namespace zListBack.Repositories
             }
         }
 
+        // ─── Shared list methods ────────────────────────────────────────────────────
 
+        public async Task<Result<System.Collections.Generic.List<ListMemberModel>>> GetListMembers(int listId)
+        {
+            try
+            {
+                const string sql = @"
+                    SELECT
+                        u.Id AS UserId,
+                        u.FirstName,
+                        u.LastName,
+                        u.Email,
+                        ul.IsOwner
+                    FROM UserLists ul
+                    INNER JOIN Users u ON u.Id = ul.UserId
+                    WHERE ul.ListId = @ListId
+                    ORDER BY ul.IsOwner DESC, u.FirstName, u.LastName;";
+
+                var members = await _connection.QueryAsync<ListMemberModel>(sql, new { ListId = listId });
+                return Result<System.Collections.Generic.List<ListMemberModel>>.Ok(members.ToList());
+            }
+            catch (Exception ex)
+            {
+                return Result<System.Collections.Generic.List<ListMemberModel>>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> CreateListInvitation(ListInvitation invitation)
+        {
+            try
+            {
+                const string alreadyMemberSql = @"
+                    SELECT COUNT(1) FROM UserLists
+                    WHERE ListId = @ListId
+                    AND UserId = (SELECT Id FROM Users WHERE Email = @InvitedEmail);";
+
+                const string deletePendingSql = @"
+                    DELETE FROM ListInvitations
+                    WHERE ListId = @ListId AND InvitedEmail = @InvitedEmail AND Status = 'pending';";
+
+                const string insertSql = @"
+                    INSERT INTO ListInvitations
+                    (ListId, InvitedByUserId, InvitedEmail, Token, Status, CreatedAt, ExpiresAt)
+                    OUTPUT INSERTED.Id
+                    VALUES
+                    (@ListId, @InvitedByUserId, @InvitedEmail, @Token, 'pending', GETUTCDATE(), @ExpiresAt);";
+
+                var alreadyMember = await _connection.ExecuteScalarAsync<int>(
+                    alreadyMemberSql,
+                    new { invitation.ListId, invitation.InvitedEmail }
+                );
+
+                if (alreadyMember > 0)
+                    return Result<bool>.Fail("This person is already a member of the list.");
+
+                using var transaction = _connection.BeginTransaction();
+
+                await _connection.ExecuteAsync(
+                    deletePendingSql,
+                    new { invitation.ListId, invitation.InvitedEmail },
+                    transaction
+                );
+
+                await _connection.ExecuteScalarAsync<int>(
+                    insertSql,
+                    new
+                    {
+                        invitation.ListId,
+                        invitation.InvitedByUserId,
+                        invitation.InvitedEmail,
+                        invitation.Token,
+                        invitation.ExpiresAt
+                    },
+                    transaction
+                );
+
+                transaction.Commit();
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<ListInvitation>> GetListInvitation(string token)
+        {
+            try
+            {
+                const string sql = @"
+                    SELECT
+                        li.Id,
+                        li.ListId,
+                        li.InvitedByUserId,
+                        li.InvitedEmail,
+                        li.Token,
+                        li.Status,
+                        li.CreatedAt,
+                        li.ExpiresAt,
+                        li.AcceptedByUserId,
+                        l.ListName,
+                        u.FirstName AS InvitedByFirstName,
+                        u.LastName  AS InvitedByLastName
+                    FROM ListInvitations li
+                    INNER JOIN Lists l ON l.Id = li.ListId
+                    INNER JOIN Users u ON u.Id = li.InvitedByUserId
+                    WHERE li.Token = @Token;";
+
+                var invitation = await _connection.QuerySingleOrDefaultAsync<ListInvitation>(sql, new { Token = token });
+                if (invitation == null)
+                    return Result<ListInvitation>.Fail("Invitation not found.");
+
+                return Result<ListInvitation>.Ok(invitation);
+            }
+            catch (Exception ex)
+            {
+                return Result<ListInvitation>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> AcceptListInvitation(string token, int userId)
+        {
+            try
+            {
+                const string getInviteSql = @"
+                    SELECT li.Id, li.ListId, li.Status, li.ExpiresAt
+                    FROM ListInvitations li
+                    WHERE li.Token = @Token;";
+
+                const string alreadyMemberSql = @"
+                    SELECT COUNT(1) FROM UserLists WHERE ListId = @ListId AND UserId = @UserId;";
+
+                const string updateInviteSql = @"
+                    UPDATE ListInvitations
+                    SET Status = 'accepted', AcceptedByUserId = @UserId
+                    WHERE Token = @Token;";
+
+                const string insertMemberSql = @"
+                    INSERT INTO UserLists (UserId, ListId, IsOwner)
+                    VALUES (@UserId, @ListId, 0);";
+
+                var invite = await _connection.QuerySingleOrDefaultAsync(getInviteSql, new { Token = token });
+                if (invite == null)
+                    return Result<bool>.Fail("Invitation not found.");
+
+                if ((string)invite.Status == "accepted")
+                    return Result<bool>.Fail("This invitation has already been used.");
+
+                if ((DateTime)invite.ExpiresAt < DateTime.UtcNow)
+                    return Result<bool>.Fail("This invitation has expired.");
+
+                int listId = (int)invite.ListId;
+
+                var alreadyMember = await _connection.ExecuteScalarAsync<int>(
+                    alreadyMemberSql,
+                    new { ListId = listId, UserId = userId }
+                );
+
+                using var transaction = _connection.BeginTransaction();
+
+                await _connection.ExecuteAsync(updateInviteSql, new { Token = token, UserId = userId }, transaction);
+
+                if (alreadyMember == 0)
+                {
+                    await _connection.ExecuteAsync(insertMemberSql, new { UserId = userId, ListId = listId }, transaction);
+                }
+
+                transaction.Commit();
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> RemoveListMember(int listId, int requestingUserId, int memberUserId)
+        {
+            try
+            {
+                const string ownerCheckSql = @"
+                    SELECT IsOwner FROM UserLists WHERE ListId = @ListId AND UserId = @UserId;";
+
+                const string deleteMemberSql = @"
+                    DELETE FROM UserLists
+                    WHERE ListId = @ListId AND UserId = @MemberUserId AND IsOwner = 0;";
+
+                var isOwner = await _connection.ExecuteScalarAsync<bool?>(
+                    ownerCheckSql,
+                    new { ListId = listId, UserId = requestingUserId }
+                );
+
+                if (isOwner == null || !isOwner.Value)
+                    return Result<bool>.Fail("Only the list owner can remove members.");
+
+                var rows = await _connection.ExecuteAsync(
+                    deleteMemberSql,
+                    new { ListId = listId, MemberUserId = memberUserId }
+                );
+
+                if (rows == 0)
+                    return Result<bool>.Fail("Member not found or is the list owner.");
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> LeaveList(int listId, int userId)
+        {
+            try
+            {
+                const string checkSql = @"
+                    SELECT IsOwner FROM UserLists WHERE ListId = @ListId AND UserId = @UserId;";
+
+                const string deleteSql = @"
+                    DELETE FROM UserLists WHERE ListId = @ListId AND UserId = @UserId AND IsOwner = 0;";
+
+                var isOwner = await _connection.ExecuteScalarAsync<bool?>(
+                    checkSql,
+                    new { ListId = listId, UserId = userId }
+                );
+
+                if (isOwner == null)
+                    return Result<bool>.Fail("You are not a member of this list.");
+
+                if (isOwner.Value)
+                    return Result<bool>.Fail("You are the list owner. Delete the list instead.");
+
+                await _connection.ExecuteAsync(deleteSql, new { ListId = listId, UserId = userId });
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
     }
 }

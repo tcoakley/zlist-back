@@ -14,5 +14,6 @@ namespace zListBack.Dtos
 
         public DateTime? CompletedAt { get; set; }
         public int? CompletedBy { get; set; }
+        public string? CompletedByInitials { get; set; }
     }
 }

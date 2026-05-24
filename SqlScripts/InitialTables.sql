@@ -68,11 +68,32 @@ CREATE TABLE UserLists (
 	Id INT IDENTITY(1,1) PRIMARY KEY,
 	UserId INT NOT NULL,
 	ListId INT NOT NULL,
-	SortOrder INT NOT NULL DEFAULT 0,
+	IsOwner BIT NOT NULL DEFAULT 0,
+	FOREIGN KEY (UserId) REFERENCES Users(Id),
 	FOREIGN KEY (ListId) REFERENCES Lists(Id)
 );
 
--- 4. ListRuns
+-- 4. ListInvitations
+CREATE TABLE ListInvitations (
+	Id INT IDENTITY(1,1) PRIMARY KEY,
+	ListId INT NOT NULL,
+	InvitedByUserId INT NOT NULL,
+	InvitedEmail NVARCHAR(256) NOT NULL,
+	Token NVARCHAR(64) NOT NULL,
+	Status NVARCHAR(20) NOT NULL DEFAULT 'pending',
+	CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+	ExpiresAt DATETIME2 NOT NULL,
+	AcceptedByUserId INT NULL,
+	CONSTRAINT FK_ListInvitations_Lists FOREIGN KEY (ListId) REFERENCES Lists(Id),
+	CONSTRAINT FK_ListInvitations_InvitedBy FOREIGN KEY (InvitedByUserId) REFERENCES Users(Id),
+	CONSTRAINT FK_ListInvitations_AcceptedBy FOREIGN KEY (AcceptedByUserId) REFERENCES Users(Id),
+	CONSTRAINT UQ_ListInvitations_Token UNIQUE (Token)
+);
+
+CREATE INDEX IX_ListInvitations_ListId ON ListInvitations(ListId);
+CREATE INDEX IX_ListInvitations_InvitedEmail ON ListInvitations(InvitedEmail);
+
+-- 5. ListRuns
 CREATE TABLE ListRuns (
 	Id INT IDENTITY(1,1) PRIMARY KEY,
 	ListId INT NOT NULL,

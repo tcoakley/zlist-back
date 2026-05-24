@@ -31,7 +31,8 @@ namespace zListBack.Mappers
                 ListItemDescription = entity.ListItemDescription,
                 SortOrder = entity.SortOrder,
                 CompletedAt = entity.CompletedAt,
-                CompletedBy = entity.CompletedBy
+                CompletedBy = entity.CompletedBy,
+                CompletedByInitials = entity.CompletedByInitials
             };
         }
     }
