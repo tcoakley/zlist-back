@@ -6,8 +6,13 @@ CREATE TABLE Users (
     ResetPassword NVARCHAR(MAX) NULL,
     FirstName NVARCHAR(100) NULL,
     LastName NVARCHAR(100) NULL,
-    Subscription VARCHAR(20) NOT NULL DEFAULT 'free',
-    SubscriptionExpiresAt DATETIME2 NULL,
+    Subscription         VARCHAR(20)   NOT NULL DEFAULT 'free',
+    SubscriptionExpiresAt DATETIME2   NULL,
+    SubscriptionSource   NVARCHAR(20)  NOT NULL DEFAULT 'free',
+    StripeCustomerId     NVARCHAR(100) NULL,
+    StripeSubscriptionId NVARCHAR(100) NULL,
+    GracePeriodUntil     DATETIME2     NULL,
+    IsAdmin              BIT           NOT NULL DEFAULT 0,
     IsHelpEnabled BIT NOT NULL DEFAULT 1,
     SortCompletedToBottom BIT NOT NULL DEFAULT 1,
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
@@ -50,7 +55,8 @@ CREATE TABLE Lists (
 	ListName NVARCHAR(255) NOT NULL,
 	ListDescription NVARCHAR(MAX) NULL,
 	CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
-	UpdatedAt DATETIME2 NULL
+	UpdatedAt DATETIME2 NULL,
+	IsArchived BIT NOT NULL DEFAULT 0
 );
 
 -- 2. ListItems
@@ -78,12 +84,13 @@ CREATE TABLE ListInvitations (
 	Id INT IDENTITY(1,1) PRIMARY KEY,
 	ListId INT NOT NULL,
 	InvitedByUserId INT NOT NULL,
-	InvitedEmail NVARCHAR(256) NOT NULL,
-	Token NVARCHAR(64) NOT NULL,
-	Status NVARCHAR(20) NOT NULL DEFAULT 'pending',
-	CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-	ExpiresAt DATETIME2 NOT NULL,
+	InvitedEmail    NVARCHAR(256) NOT NULL,
+	Token           NVARCHAR(64)  NOT NULL,
+	Status          NVARCHAR(20)  NOT NULL DEFAULT 'pending',
+	CreatedAt       DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+	ExpiresAt       DATETIME2     NOT NULL,
 	AcceptedByUserId INT NULL,
+	RequiresPremium BIT           NOT NULL DEFAULT 0,
 	CONSTRAINT FK_ListInvitations_Lists FOREIGN KEY (ListId) REFERENCES Lists(Id),
 	CONSTRAINT FK_ListInvitations_InvitedBy FOREIGN KEY (InvitedByUserId) REFERENCES Users(Id),
 	CONSTRAINT FK_ListInvitations_AcceptedBy FOREIGN KEY (AcceptedByUserId) REFERENCES Users(Id),
@@ -120,7 +127,23 @@ CREATE TABLE ListRunItems (
 	FOREIGN KEY (ListItemId) REFERENCES ListItems(Id)
 );
 
--- 6. AppVersions
+-- 6. SponsoredCollaborators
+CREATE TABLE SponsoredCollaborators (
+	Id              INT       IDENTITY(1,1) PRIMARY KEY,
+	SponsorUserId   INT       NOT NULL,
+	SponsoredUserId INT       NOT NULL,
+	CreatedAt       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+	IsActive        BIT       NOT NULL DEFAULT 1,
+	GraceUntil      DATETIME2 NULL,
+	CONSTRAINT FK_SponsoredCollaborators_Sponsor   FOREIGN KEY (SponsorUserId)   REFERENCES Users(Id),
+	CONSTRAINT FK_SponsoredCollaborators_Sponsored FOREIGN KEY (SponsoredUserId) REFERENCES Users(Id),
+	CONSTRAINT UQ_SponsoredCollaborators           UNIQUE (SponsorUserId, SponsoredUserId)
+);
+
+CREATE INDEX IX_SponsoredCollaborators_Sponsor   ON SponsoredCollaborators(SponsorUserId);
+CREATE INDEX IX_SponsoredCollaborators_Sponsored ON SponsoredCollaborators(SponsoredUserId);
+
+-- 7. AppVersions
 CREATE TABLE AppVersions (
 	Id         INT           IDENTITY(1,1) PRIMARY KEY,
 	Version    NVARCHAR(20)  NOT NULL,

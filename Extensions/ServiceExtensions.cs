@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
 using zListBack.Repositories;
+using zListBack.Services;
 
 namespace zListBack.Extensions
 {
@@ -22,6 +23,10 @@ namespace zListBack.Extensions
             services.AddScoped<ListRepository>();
             services.AddScoped<AppVersionRepository>();
             services.AddScoped<RefreshTokenRepository>();
+            services.AddScoped<SubscriptionRepository>();
+
+            // Register Services
+            services.AddScoped<SubscriptionService>();
 
             return services;
         }

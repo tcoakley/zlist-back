@@ -153,24 +153,32 @@ namespace zListBack.Controllers
         }
 
         [HttpPost("{listId}/invite")]
-        public async Task<Result<bool>> InviteToList(int listId, [FromBody] InviteRequestModel request)
+        public async Task<Result<InviteResultModel>> InviteToList(int listId, [FromBody] InviteRequestModel request)
         {
             var listResult = await _listService.GetList(listId, _userId);
             if (!listResult.Success || listResult.Model == null)
-                return Result<bool>.Fail("List not found.");
+                return Result<InviteResultModel>.Fail("List not found.");
 
-            var tokenResult = await _listService.InviteToList(listId, _userId, request.Email);
-            if (!tokenResult.Success || tokenResult.Model == null)
-                return Result<bool>.Fail(tokenResult.Message ?? "Failed to create invitation.");
+            var inviteResult = await _listService.InviteToList(listId, _userId, request.Email, request.SponsorConfirmed);
+            if (!inviteResult.Success || inviteResult.Model == null)
+                return Result<InviteResultModel>.Fail(inviteResult.Message ?? "Failed to create invitation.");
 
-            await _emailService.SendInvitationEmail(
-                request.Email,
-                listResult.Model.ListName,
-                _appBaseUrl,
-                tokenResult.Model
-            );
+            // Sponsorship confirmation needed — return prompt to frontend without sending email
+            if (inviteResult.Model.RequiresSponsor)
+                return Result<InviteResultModel>.Ok(inviteResult.Model);
 
-            return Result<bool>.Ok(true);
+            // Send the appropriate email based on whether premium is required
+            if (inviteResult.Model.RequiresPremiumEmail)
+            {
+                var inviterName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Someone";
+                await _emailService.SendPremiumRequiredInvitationEmail(request.Email, listResult.Model.ListName, inviterName);
+            }
+            else
+            {
+                await _emailService.SendInvitationEmail(request.Email, listResult.Model.ListName, _appBaseUrl, inviteResult.Model.Token!);
+            }
+
+            return Result<InviteResultModel>.Ok(inviteResult.Model);
         }
 
         [HttpDelete("{listId}/members/{memberId}")]

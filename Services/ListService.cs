@@ -8,16 +8,23 @@ namespace zListBack.Services
     public class ListService
     {
         private readonly ListRepository _listRepository;
+        private readonly SubscriptionService _subscriptionService;
+        private readonly SubscriptionRepository _subscriptionRepository;
 
-        public ListService(ListRepository listRepository)
+        public ListService(ListRepository listRepository, SubscriptionService subscriptionService, SubscriptionRepository subscriptionRepository)
         {
             _listRepository = listRepository;
+            _subscriptionService = subscriptionService;
+            _subscriptionRepository = subscriptionRepository;
         }
 
         public async Task<Result<ListModel>> AddList(ListModel listModel, int userId)
         {
             try
             {
+                if (!await _subscriptionService.CanCreateList(userId))
+                    return Result<ListModel>.Fail("Free accounts are limited to 2 checklists. Upgrade to Premium for unlimited lists.");
+
                 var listEntity = ListMapper.ToEntity(listModel);
                 listEntity.CreatedAt = DateTime.UtcNow;
                 listEntity.UpdatedAt = DateTime.UtcNow;
@@ -152,32 +159,88 @@ namespace zListBack.Services
             return await _listRepository.GetPendingInvitations(listId);
         }
 
-        /// <summary>Creates an invitation and returns the invite token on success.</summary>
-        public async Task<Result<string>> InviteToList(int listId, int invitingUserId, string email)
+        /// <summary>
+        /// Creates an invitation. Returns RequiresSponsor=true when the inviting user needs to
+        /// confirm sponsorship before the invite can be sent as a normal (non-premium-required) invite.
+        /// SponsorConfirmed=null: evaluate and return status.
+        /// SponsorConfirmed=true: create sponsorship then normal invite.
+        /// SponsorConfirmed=false: send RequiresPremium invite without sponsorship.
+        /// </summary>
+        public async Task<Result<InviteResultModel>> InviteToList(int listId, int invitingUserId, string email, bool? sponsorConfirmed)
         {
-            // Verify requester is the owner
             var listResult = await _listRepository.GetList(listId, invitingUserId);
             if (!listResult.Success || listResult.Model == null)
-                return Result<string>.Fail("List not found.");
+                return Result<InviteResultModel>.Fail("List not found.");
 
             if (!listResult.Model.IsOwner)
-                return Result<string>.Fail("Only the list owner can invite members.");
+                return Result<InviteResultModel>.Fail("Only the list owner can invite members.");
+
+            if (!await _subscriptionService.IsPremium(invitingUserId))
+                return Result<InviteResultModel>.Fail("Sharing lists requires a Premium account.");
+
+            var normalizedEmail = email.Trim().ToLower();
+
+            // Check if invitee has their own Premium
+            var invitee = await _subscriptionRepository.GetUserByEmail(normalizedEmail);
+            var inviteeIsPremium = invitee != null && await _subscriptionService.IsPremium(invitee.Id);
+
+            // Determine if sponsorship is needed: invitee is not premium AND inviting user's free slot is taken
+            bool requiresSponsor = false;
+            if (!inviteeIsPremium && invitee != null)
+            {
+                var alreadySponsored = await _subscriptionService.IsAlreadySponsored(invitingUserId, invitee.Id);
+                if (!alreadySponsored)
+                {
+                    var isFirstSlot = await _subscriptionService.IsFirstCollaboratorSlot(invitingUserId);
+                    requiresSponsor = !isFirstSlot;
+                }
+            }
+
+            // If sponsorship is needed and caller hasn't confirmed yet, return the prompt signal
+            if (requiresSponsor && sponsorConfirmed == null)
+                return Result<InviteResultModel>.Ok(new InviteResultModel { RequiresSponsor = true });
+
+            // Create sponsorship if confirmed
+            bool isPremiumRequired = false;
+            if (requiresSponsor)
+            {
+                if (sponsorConfirmed == true && invitee != null)
+                    await _subscriptionService.SponsorCollaborator(invitingUserId, invitee.Id);
+                else
+                    isPremiumRequired = true;
+            }
+            else if (!inviteeIsPremium && invitee != null)
+            {
+                // First free collaborator slot — create sponsorship record automatically (no Stripe charge)
+                var alreadySponsored = await _subscriptionService.IsAlreadySponsored(invitingUserId, invitee.Id);
+                if (!alreadySponsored)
+                    await _subscriptionService.SponsorCollaborator(invitingUserId, invitee.Id);
+            }
 
             var token = Guid.NewGuid().ToString("N");
             var invitation = new ListInvitation
             {
                 ListId = listId,
                 InvitedByUserId = invitingUserId,
-                InvitedEmail = email.Trim().ToLower(),
+                InvitedEmail = normalizedEmail,
                 Token = token,
-                ExpiresAt = DateTime.UtcNow.AddDays(7)
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+                RequiresPremium = isPremiumRequired
             };
 
             var result = await _listRepository.CreateListInvitation(invitation);
             if (!result.Success)
-                return Result<string>.Fail(result.Message ?? "Failed to create invitation.");
+                return Result<InviteResultModel>.Fail(result.Message ?? "Failed to create invitation.");
 
-            return Result<string>.Ok(token);
+            return Result<InviteResultModel>.Ok(new InviteResultModel
+            {
+                RequiresSponsor = false,
+                RequiresPremiumEmail = isPremiumRequired,
+                Token = token,
+                Message = isPremiumRequired
+                    ? "Invitation sent. The recipient will need a Premium account to accept."
+                    : null
+            });
         }
 
         public async Task<Result<ListInvitationInfoModel>> GetListInvitation(string token)

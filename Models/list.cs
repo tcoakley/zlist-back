@@ -12,6 +12,7 @@
         public DateTime? LastRun { get; set; }
         public int TotalItems { get; set; }
         public bool IsOwner { get; set; }
+        public bool IsArchived { get; set; }
 
         public List<ListItem> Items { get; set; } = new List<ListItem>();
     }

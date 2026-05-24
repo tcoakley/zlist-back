@@ -56,6 +56,35 @@ namespace zListBack.Services
             }
         }
 
+        public async Task<Result<bool>> SendPremiumRequiredInvitationEmail(string recipientEmail, string listName, string invitedByName)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = $"You've been invited to a zChecklist list",
+                    Body = $@"
+                        <p>{invitedByName} has invited you to collaborate on the list <strong>{listName}</strong> in zChecklist.</p>
+                        <p>To accept this invitation, you will need a <strong>zChecklist Premium account</strong> ($1.99/month).</p>
+                        <p>Sign up at <a href=""https://zchecklist.com"">zchecklist.com</a> and you will be able to accept the invitation once your account is active.</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         public async Task<Result<string>> SendForgotPasswordEmail(string recipientEmail)
         {
             try

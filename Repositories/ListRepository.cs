@@ -106,6 +106,43 @@ namespace zListBack.Repositories
             }
         }
 
+        // Returns all owned lists for the downgrade selection screen (includes archived).
+        public async Task<System.Collections.Generic.List<List>> GetOwnedListsForSelection(int userId)
+        {
+            const string sql = @"
+                SELECT l.Id, l.ListName, l.IsArchived,
+                       COUNT(DISTINCT li.Id) AS TotalItems
+                FROM Lists l
+                INNER JOIN UserLists ul ON ul.ListId = l.Id AND ul.UserId = @UserId AND ul.IsOwner = 1
+                LEFT JOIN ListItems li ON li.ListId = l.Id
+                GROUP BY l.Id, l.ListName, l.IsArchived
+                ORDER BY l.IsArchived, l.ListName;";
+
+            return (await _connection.QueryAsync<List>(sql, new { UserId = userId })).ToList();
+        }
+
+        public async Task ArchiveUnselectedLists(int userId, IEnumerable<int> keepListIds)
+        {
+            var keepIds = keepListIds.ToList();
+            const string sql = @"
+                UPDATE l SET l.IsArchived = CASE WHEN l.Id IN @KeepIds THEN 0 ELSE 1 END
+                FROM Lists l
+                INNER JOIN UserLists ul ON ul.ListId = l.Id AND ul.UserId = @UserId AND ul.IsOwner = 1;";
+
+            await _connection.ExecuteAsync(sql, new { UserId = userId, KeepIds = keepIds.Count > 0 ? keepIds : new List<int> { -1 } });
+        }
+
+        public async Task RestoreArchivedLists(int userId)
+        {
+            const string sql = @"
+                UPDATE l SET l.IsArchived = 0
+                FROM Lists l
+                INNER JOIN UserLists ul ON ul.ListId = l.Id AND ul.UserId = @UserId AND ul.IsOwner = 1
+                WHERE l.IsArchived = 1;";
+
+            await _connection.ExecuteAsync(sql, new { UserId = userId });
+        }
+
         public async Task<Result<bool>> DeleteList(int listId, int userId)
         {
             try
@@ -397,7 +434,7 @@ namespace zListBack.Repositories
                     INNER JOIN UserLists ul ON ul.ListId = l.Id
                     LEFT JOIN ListItems li  ON li.ListId = l.Id
                     LEFT JOIN ListRuns lr   ON lr.ListId = l.Id
-                    WHERE ul.UserId = @UserId
+                    WHERE ul.UserId = @UserId AND l.IsArchived = 0
                     GROUP BY l.Id, l.ListName, l.ListDescription, l.CreatedAt, l.UpdatedAt, ul.IsOwner
                     ORDER BY MAX(lr.CreatedAt) DESC, l.CreatedAt DESC;";
 
@@ -930,10 +967,10 @@ namespace zListBack.Repositories
 
                 const string insertSql = @"
                     INSERT INTO ListInvitations
-                    (ListId, InvitedByUserId, InvitedEmail, Token, Status, CreatedAt, ExpiresAt)
+                    (ListId, InvitedByUserId, InvitedEmail, Token, Status, CreatedAt, ExpiresAt, RequiresPremium)
                     OUTPUT INSERTED.Id
                     VALUES
-                    (@ListId, @InvitedByUserId, @InvitedEmail, @Token, 'pending', GETUTCDATE(), @ExpiresAt);";
+                    (@ListId, @InvitedByUserId, @InvitedEmail, @Token, 'pending', GETUTCDATE(), @ExpiresAt, @RequiresPremium);";
 
                 var alreadyMember = await _connection.ExecuteScalarAsync<int>(
                     alreadyMemberSql,
@@ -959,7 +996,8 @@ namespace zListBack.Repositories
                         invitation.InvitedByUserId,
                         invitation.InvitedEmail,
                         invitation.Token,
-                        invitation.ExpiresAt
+                        invitation.ExpiresAt,
+                        invitation.RequiresPremium
                     },
                     transaction
                 );

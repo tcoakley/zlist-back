@@ -11,6 +11,8 @@ public static class UserMapper
         LastName = user.LastName,
         Subscription = user.Subscription,
         SubscriptionExpiresAt = user.SubscriptionExpiresAt,
+        SubscriptionSource = user.SubscriptionSource,
+        IsAdmin = user.IsAdmin,
         IsHelpEnabled = user.IsHelpEnabled,
         SortCompletedToBottom = user.SortCompletedToBottom,
         CreatedAt = user.CreatedAt,

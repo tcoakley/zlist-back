@@ -11,6 +11,7 @@ namespace zListBack.Models
         public DateTime CreatedAt { get; set; }
         public DateTime ExpiresAt { get; set; }
         public int? AcceptedByUserId { get; set; }
+        public bool RequiresPremium { get; set; }
 
         // Populated from JOINs
         public string? ListName { get; set; }

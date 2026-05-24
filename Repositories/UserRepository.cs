@@ -19,7 +19,8 @@ namespace zListBack.Repositories
             {
                 const string sql = @"
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
-                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
+                           Subscription, SubscriptionExpiresAt, SubscriptionSource, IsAdmin,
+                           IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 
@@ -41,7 +42,8 @@ namespace zListBack.Repositories
             {
                 const string sql = @"
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
-                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
+                           Subscription, SubscriptionExpiresAt, SubscriptionSource, IsAdmin,
+                           IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Id = @Id;";
 
@@ -172,7 +174,8 @@ namespace zListBack.Repositories
             {
                 const string sql = @"
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
-                           Subscription, SubscriptionExpiresAt, IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
+                           Subscription, SubscriptionExpiresAt, SubscriptionSource, IsAdmin,
+                           IsHelpEnabled, SortCompletedToBottom, CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 
