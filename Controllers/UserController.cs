@@ -16,11 +16,13 @@ namespace zListBack.Controllers
     {
         private readonly UserRepository _userRepository;
         private readonly RecaptchaService _recaptchaService;
+        private readonly EmailService _emailService;
 
-        public UserController(UserRepository userRepository, RecaptchaService recaptchaService)
+        public UserController(UserRepository userRepository, RecaptchaService recaptchaService, EmailService emailService)
         {
             _userRepository = userRepository;
             _recaptchaService = recaptchaService;
+            _emailService = emailService;
         }
 
         [HttpGet("{email}")]
@@ -64,9 +66,11 @@ namespace zListBack.Controllers
             };
 
             var result = await _userRepository.AddUserAsync(user);
-            return result.Success
-                ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
-                : Result<UserModel>.Fail(result.Message ?? "Failed to add user.");
+            if (!result.Success)
+                return Result<UserModel>.Fail(result.Message ?? "Failed to add user.");
+
+            _ = _emailService.SendWelcomeEmail(user.Email, user.FirstName ?? user.Email);
+            return Result<UserModel>.Ok(UserMapper.ToDto(result.Model!));
         }
 
         [HttpPut("UpdateUser")]
