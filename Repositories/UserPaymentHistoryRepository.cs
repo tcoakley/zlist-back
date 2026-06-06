@@ -4,7 +4,7 @@ using zListBack.Models;
 
 namespace zListBack.Repositories
 {
-    public class UserPaymentHistoryRepository
+    public class UserPaymentHistoryRepository : IUserPaymentHistoryRepository
     {
         private readonly IDbConnection _connection;
 

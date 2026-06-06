@@ -14,11 +14,11 @@ namespace zListBack.Controllers
     public class ContactController : ControllerBase
     {
         private readonly EmailService _emailService;
-        private readonly UserRepository _userRepo;
+        private readonly IUserRepository _userRepo;
 
         private int UserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-        public ContactController(EmailService emailService, UserRepository userRepo)
+        public ContactController(EmailService emailService, IUserRepository userRepo)
         {
             _emailService = emailService;
             _userRepo = userRepo;

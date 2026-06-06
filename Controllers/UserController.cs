@@ -14,11 +14,11 @@ namespace zListBack.Controllers
     [Authorize]
     public class UserController : ControllerBase
     {
-        private readonly UserRepository _userRepository;
+        private readonly IUserRepository _userRepository;
         private readonly RecaptchaService _recaptchaService;
         private readonly EmailService _emailService;
 
-        public UserController(UserRepository userRepository, RecaptchaService recaptchaService, EmailService emailService)
+        public UserController(IUserRepository userRepository, RecaptchaService recaptchaService, EmailService emailService)
         {
             _userRepository = userRepository;
             _recaptchaService = recaptchaService;

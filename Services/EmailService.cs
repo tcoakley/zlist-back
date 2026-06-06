@@ -14,9 +14,9 @@ namespace zListBack.Services
         private readonly string _senderEmail;
         private readonly string _senderPassword;
         private readonly string _baseUrl;
-        private readonly UserRepository _userRepository;
+        private readonly IUserRepository _userRepository;
 
-        public EmailService(IConfiguration configuration, UserRepository userRepository)
+        public EmailService(IConfiguration configuration, IUserRepository userRepository)
         {
             var emailSettings = configuration.GetSection("EmailSettings");
             _smtpServer = emailSettings["SmtpServer"]!;
@@ -27,7 +27,7 @@ namespace zListBack.Services
             _userRepository = userRepository;
         }
 
-        public async Task<Result<bool>> SendWelcomeEmail(string recipientEmail, string firstName)
+        public virtual async Task<Result<bool>> SendWelcomeEmail(string recipientEmail, string firstName)
         {
             try
             {
@@ -75,7 +75,7 @@ namespace zListBack.Services
             }
         }
 
-        public async Task<Result<bool>> SendInvitationEmail(string recipientEmail, string listName, string appBaseUrl, string token)
+        public virtual async Task<Result<bool>> SendInvitationEmail(string recipientEmail, string listName, string appBaseUrl, string token)
         {
             try
             {
@@ -106,7 +106,7 @@ namespace zListBack.Services
             }
         }
 
-        public async Task<Result<bool>> SendPremiumRequiredInvitationEmail(string recipientEmail, string listName, string invitedByName)
+        public virtual async Task<Result<bool>> SendPremiumRequiredInvitationEmail(string recipientEmail, string listName, string invitedByName)
         {
             try
             {
@@ -135,7 +135,7 @@ namespace zListBack.Services
             }
         }
 
-        public async Task<Result<bool>> SendCollaboratorAddedEmail(
+        public virtual async Task<Result<bool>> SendCollaboratorAddedEmail(
             string recipientEmail, string recipientFirstName,
             string sponsorName, bool isFreeSlot)
         {
@@ -150,12 +150,13 @@ namespace zListBack.Services
                 {
                     body = $@"
                         <p>Hi {recipientFirstName},</p>
-                        <p><strong>{sponsorName}</strong> has added you as a collaborator on their zChecklist lists.
-                        You now have access to all of their shared lists at no cost to you.</p>
+                        <p><strong>{sponsorName}</strong> has added you as a collaborator on zChecklist.
+                        They will be able to invite you to specific lists they want to share with you —
+                        you'll receive a separate invitation for each one.</p>
 
                         <h3>What you can do now</h3>
                         <ul>
-                            <li>Join and run any list {sponsorName} shares with you</li>
+                            <li>Accept list invitations from {sponsorName} when they arrive</li>
                             <li>Check off items in real time alongside other collaborators</li>
                             <li>Create and run up to 2 lists of your own for free</li>
                         </ul>
@@ -176,8 +177,9 @@ namespace zListBack.Services
                 {
                     body = $@"
                         <p>Hi {recipientFirstName},</p>
-                        <p><strong>{sponsorName}</strong> has added you as a collaborator on their zChecklist lists.
-                        Your access is covered by {sponsorName} and you can join all of their shared lists.</p>
+                        <p><strong>{sponsorName}</strong> has added you as a collaborator on zChecklist.
+                        They will invite you to specific lists they want to share — you'll receive a
+                        separate invitation for each one.</p>
                         <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>
                         <p>— The zChecklist Team</p>";
                 }
@@ -200,7 +202,7 @@ namespace zListBack.Services
             }
         }
 
-        public async Task<Result<bool>> SendCollaboratorRemovedEmail(
+        public virtual async Task<Result<bool>> SendCollaboratorRemovedEmail(
             string recipientEmail, string recipientFirstName,
             string sponsorName, DateTime graceUntil)
         {
@@ -216,9 +218,10 @@ namespace zListBack.Services
                     Subject = "Your zChecklist collaborator access is ending",
                     Body = $@"
                         <p>Hi {recipientFirstName},</p>
-                        <p><strong>{sponsorName}</strong> has removed you as a collaborator on their zChecklist lists.</p>
-                        <p>You will retain access to their shared lists through <strong>{graceUntil:MMMM d, yyyy}</strong>,
-                        after which you will no longer be able to view or run them.</p>
+                        <p><strong>{sponsorName}</strong> has removed you as a collaborator on zChecklist.</p>
+                        <p>You will retain access to any lists they have shared with you through
+                        <strong>{graceUntil:MMMM d, yyyy}</strong>,
+                        after which you will no longer be able to view or run those lists.</p>
                         <p>Your own lists and run history are not affected.</p>
 
                         <h3>Keep your full access</h3>
@@ -240,7 +243,224 @@ namespace zListBack.Services
             }
         }
 
-        public async Task<Result<bool>> SendContactEmail(int userId, string userEmail, string firstName, string lastName, string contactType, string message)
+        public virtual async Task<Result<bool>> SendSubscriptionActivatedEmail(string recipientEmail, string firstName)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "You're now on Premium — welcome!",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>Your zChecklist Premium subscription is now active. Here's what you have access to:</p>
+                        <ul>
+                            <li>Unlimited checklists</li>
+                            <li>Create and manage shared lists</li>
+                            <li>1 free collaborator included — invite them from your <a href=""{_baseUrl}/account"">Account page</a></li>
+                            <li>Add more collaborators for $1/month each</li>
+                            <li>7-day grace period on any billing issues</li>
+                        </ul>
+                        <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendPaymentFailedEmail(string recipientEmail, string firstName, DateTime lastAccessDate)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "Action needed — zChecklist payment issue",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>We weren't able to process your most recent zChecklist payment. These things happen —
+                        please update your billing details to avoid any interruption to your service.</p>
+                        <p>Your account will remain active until <strong>{lastAccessDate:MMMM d, yyyy}</strong>.
+                        Updating your payment before that date will keep everything running without interruption.</p>
+                        <p><a href=""{_baseUrl}/account"">Update billing details</a></p>
+                        <p>If you have any questions, please don't hesitate to reach out.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendSubscriptionCancelledEmail(string recipientEmail, string firstName, DateTime lastAccessDate)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "Your zChecklist subscription has been cancelled",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>Your zChecklist Premium subscription has been cancelled. You will retain full access
+                        to your lists and all Premium features until <strong>{lastAccessDate:MMMM d, yyyy}</strong>.</p>
+                        <p>After that date your account will move to the free plan (up to 2 lists).
+                        Your run history is always preserved.</p>
+                        <p>We'd love to have you back anytime —
+                        <a href=""{_baseUrl}/account"">reactivate Premium</a> whenever you're ready.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendBillingReminderEmail(string recipientEmail, string firstName, DateTime billingDate, decimal amount)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "Your zChecklist billing is coming up",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>Just a heads-up — your next zChecklist Premium payment of
+                        <strong>${amount:F2}</strong> is scheduled for <strong>{billingDate:MMMM d, yyyy}</strong>.</p>
+                        <p>No action needed unless you'd like to make changes to your plan.</p>
+                        <p><a href=""{_baseUrl}/account"">View your account</a></p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendInactivityReminderEmail(string recipientEmail, string firstName, DateTime nextBillingDate)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "We haven't seen you in a while — zChecklist",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>We noticed you haven't used zChecklist in a while. Your Premium subscription
+                        continues and your next billing date is <strong>{nextBillingDate:MMMM d, yyyy}</strong>.</p>
+                        <p>Your lists and run history are right where you left them whenever you're ready.</p>
+                        <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>
+                        <p>If you no longer need Premium, you can cancel anytime from your
+                        <a href=""{_baseUrl}/account"">Account page</a>.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendSponsorInactiveCollaboratorsEmail(
+            string sponsorEmail, string sponsorFirstName,
+            IEnumerable<string> inactiveCollaboratorNames, DateTime nextBillingDate)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var nameList = string.Join("", inactiveCollaboratorNames.Select(n => $"<li>{n}</li>"));
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "Some of your zChecklist collaborators haven't been active",
+                    Body = $@"
+                        <p>Hi {sponsorFirstName},</p>
+                        <p>The following collaborators you're sponsoring on zChecklist haven't been active in over 45 days:</p>
+                        <ul>{nameList}</ul>
+                        <p>You're currently paying for their access. If they no longer need it, you can
+                        remove them from your <a href=""{_baseUrl}/account"">Account page</a> to reduce your monthly cost.</p>
+                        <p>Your next billing date is <strong>{nextBillingDate:MMMM d, yyyy}</strong>.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                sponsorEmail.Split(',').ToList().ForEach(e => mailMessage.To.Add(e.Trim()));
+                mailMessage.To.Clear();
+                mailMessage.To.Add(sponsorEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendCollaboratorUpgradedEmail(
+            string sponsorEmail, string sponsorFirstName,
+            string collaboratorName)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = $"{collaboratorName} now has their own Premium subscription",
+                    Body = $@"
+                        <p>Hi {sponsorFirstName},</p>
+                        <p><strong>{collaboratorName}</strong>, one of the collaborators you sponsor on zChecklist,
+                        has upgraded to their own Premium subscription.</p>
+                        <p>You may want to remove them as a sponsored collaborator on your
+                        <a href=""{_baseUrl}/account"">Account page</a> — their access is no longer dependent on you,
+                        and removing them would reduce your monthly cost.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(sponsorEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendContactEmail(int userId, string userEmail, string firstName, string lastName, string contactType, string message)
         {
             try
             {
@@ -271,7 +491,7 @@ namespace zListBack.Services
             }
         }
 
-        public async Task<Result<string>> SendForgotPasswordEmail(string recipientEmail)
+        public virtual async Task<Result<string>> SendForgotPasswordEmail(string recipientEmail)
         {
             try
             {

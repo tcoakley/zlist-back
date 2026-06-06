@@ -15,6 +15,9 @@ CREATE TABLE Users (
     IsAdmin              BIT           NOT NULL DEFAULT 0,
     IsHelpEnabled BIT NOT NULL DEFAULT 1,
     SortCompletedToBottom BIT NOT NULL DEFAULT 1,
+    LastActiveAt          DATETIME2     NULL,
+    InactivityNoticeSentAt DATETIME2    NULL,
+    BillingReminderSentAt  DATETIME2    NULL,
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     UpdatedAt DATETIME2 NULL
 );

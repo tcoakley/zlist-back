@@ -13,13 +13,13 @@ namespace zListBack.Controllers
     public class LoginController : ControllerBase
     {
         private readonly IConfiguration _configuration;
-        private readonly UserRepository _userRepository;
+        private readonly IUserRepository _userRepository;
         private readonly EmailService _emailService;
         private readonly RefreshTokenRepository _refreshTokenRepository;
 
         public LoginController(
             IConfiguration configuration,
-            UserRepository userRepository,
+            IUserRepository userRepository,
             EmailService emailService,
             RefreshTokenRepository refreshTokenRepository)
         {

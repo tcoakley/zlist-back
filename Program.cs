@@ -8,6 +8,9 @@ using zListBack.Utils;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Required for Stripe webhook signature verification — must read raw body
+builder.Services.Configure<RouteOptions>(options => { });
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {

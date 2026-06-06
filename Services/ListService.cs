@@ -9,9 +9,9 @@ namespace zListBack.Services
     {
         private readonly ListRepository _listRepository;
         private readonly SubscriptionService _subscriptionService;
-        private readonly SubscriptionRepository _subscriptionRepository;
+        private readonly ISubscriptionRepository _subscriptionRepository;
 
-        public ListService(ListRepository listRepository, SubscriptionService subscriptionService, SubscriptionRepository subscriptionRepository)
+        public ListService(ListRepository listRepository, SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepository)
         {
             _listRepository = listRepository;
             _subscriptionService = subscriptionService;

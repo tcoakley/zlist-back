@@ -5,7 +5,7 @@ using zListBack.Models;
 
 namespace zListBack.Repositories
 {
-    public class SubscriptionRepository
+    public class SubscriptionRepository : ISubscriptionRepository
     {
         private readonly IDbConnection _connection;
 
@@ -124,7 +124,7 @@ namespace zListBack.Repositories
             await _connection.ExecuteAsync(sql, new { UserId = userId, CustomerId = stripeCustomerId, SubscriptionId = stripeSubscriptionId });
         }
 
-        public async Task SetGracePeriod(int userId, DateTime graceUntil)
+        public async Task SetGracePeriod(int userId, DateTime? graceUntil)
         {
             const string sql = @"
                 UPDATE Users SET GracePeriodUntil = @GraceUntil, UpdatedAt = GETUTCDATE()
@@ -201,6 +201,136 @@ namespace zListBack.Repositories
                 WHERE l.IsArchived = 0;";
             var count = await _connection.ExecuteScalarAsync<int>(sql, new { UserId = userId });
             return count > 2;
+        }
+
+        // ─── Daily cleanup queries ────────────────────────────────────────────────
+
+        public async Task<IEnumerable<User>> GetInactivePremiumUsers(int inactiveDays)
+        {
+            const string sql = @"
+                SELECT Id, Email, FirstName, LastName, Subscription, SubscriptionExpiresAt,
+                       StripeCustomerId, StripeSubscriptionId, InactivityNoticeSentAt, LastActiveAt
+                FROM Users
+                WHERE Subscription = 'premium'
+                  AND SubscriptionSource = 'stripe'
+                  AND InactivityNoticeSentAt IS NULL
+                  AND (LastActiveAt IS NULL OR LastActiveAt < DATEADD(DAY, -@InactiveDays, GETUTCDATE()));";
+            return await _connection.QueryAsync<User>(sql, new { InactiveDays = inactiveDays });
+        }
+
+        public async Task SetInactivityNoticeSent(int userId)
+        {
+            const string sql = @"
+                UPDATE Users SET InactivityNoticeSentAt = GETUTCDATE() WHERE Id = @UserId;";
+            await _connection.ExecuteAsync(sql, new { UserId = userId });
+        }
+
+        public async Task<IEnumerable<(User Sponsor, IEnumerable<User> Collaborators)>> GetSponsorsWithInactiveCollaborators(int inactiveDays)
+        {
+            const string sql = @"
+                SELECT
+                    s.Id, s.Email, s.FirstName, s.LastName,
+                    s.SubscriptionExpiresAt, s.InactivityNoticeSentAt,
+                    c.Id AS CollabId, c.Email AS CollabEmail,
+                    c.FirstName AS CollabFirstName, c.LastName AS CollabLastName,
+                    c.LastActiveAt AS CollabLastActiveAt
+                FROM SponsoredCollaborators sc
+                INNER JOIN Users s ON s.Id = sc.SponsorUserId
+                INNER JOIN Users c ON c.Id = sc.SponsoredUserId
+                WHERE sc.IsActive = 1
+                  AND s.Subscription = 'premium'
+                  AND s.SubscriptionSource = 'stripe'
+                  AND (c.LastActiveAt IS NULL OR c.LastActiveAt < DATEADD(DAY, -@InactiveDays, GETUTCDATE()))
+                ORDER BY s.Id;";
+
+            var rows = await _connection.QueryAsync<dynamic>(sql, new { InactiveDays = inactiveDays });
+
+            return rows
+                .GroupBy(r => (int)r.Id)
+                .Select(g =>
+                {
+                    var first = g.First();
+                    var sponsor = new User
+                    {
+                        Id = (int)first.Id,
+                        Email = (string)first.Email,
+                        FirstName = (string?)first.FirstName,
+                        LastName = (string?)first.LastName,
+                        SubscriptionExpiresAt = (DateTime?)first.SubscriptionExpiresAt
+                    };
+                    var collaborators = g.Select(r => new User
+                    {
+                        Id = (int)r.CollabId,
+                        Email = (string)r.CollabEmail,
+                        FirstName = (string?)r.CollabFirstName,
+                        LastName = (string?)r.CollabLastName,
+                        LastActiveAt = (DateTime?)r.CollabLastActiveAt
+                    });
+                    return (Sponsor: sponsor, Collaborators: collaborators);
+                });
+        }
+
+        public async Task<IEnumerable<User>> GetUsersWithBillingInDays(int days)
+        {
+            const string sql = @"
+                SELECT Id, Email, FirstName, LastName, SubscriptionExpiresAt, BillingReminderSentAt
+                FROM Users
+                WHERE Subscription = 'premium'
+                  AND SubscriptionSource = 'stripe'
+                  AND SubscriptionExpiresAt IS NOT NULL
+                  AND CAST(SubscriptionExpiresAt AS DATE) = CAST(DATEADD(DAY, @Days, GETUTCDATE()) AS DATE)
+                  AND (BillingReminderSentAt IS NULL
+                       OR CAST(BillingReminderSentAt AS DATE) < CAST(DATEADD(DAY, -25, GETUTCDATE()) AS DATE));";
+            return await _connection.QueryAsync<User>(sql, new { Days = days });
+        }
+
+        public async Task SetBillingReminderSent(int userId, DateTime periodEnd)
+        {
+            const string sql = @"
+                UPDATE Users SET BillingReminderSentAt = GETUTCDATE() WHERE Id = @UserId;";
+            await _connection.ExecuteAsync(sql, new { UserId = userId });
+        }
+
+        public async Task<IEnumerable<(User Sponsor, User Collaborator)>> GetCollaboratorsWhoUpgradedThemselves()
+        {
+            const string sql = @"
+                SELECT
+                    s.Id, s.Email, s.FirstName, s.LastName,
+                    c.Id AS CollabId, c.Email AS CollabEmail,
+                    c.FirstName AS CollabFirstName, c.LastName AS CollabLastName
+                FROM SponsoredCollaborators sc
+                INNER JOIN Users s ON s.Id = sc.SponsorUserId
+                INNER JOIN Users c ON c.Id = sc.SponsoredUserId
+                WHERE sc.IsActive = 1
+                  AND c.Subscription = 'premium'
+                  AND c.SubscriptionSource = 'stripe';";
+
+            var rows = await _connection.QueryAsync<dynamic>(sql);
+            return rows.Select(r => (
+                Sponsor: new User
+                {
+                    Id = (int)r.Id,
+                    Email = (string)r.Email,
+                    FirstName = (string?)r.FirstName,
+                    LastName = (string?)r.LastName
+                },
+                Collaborator: new User
+                {
+                    Id = (int)r.CollabId,
+                    Email = (string)r.CollabEmail,
+                    FirstName = (string?)r.CollabFirstName,
+                    LastName = (string?)r.CollabLastName
+                }
+            ));
+        }
+
+        public async Task<User?> GetUserByStripeCustomerId(string stripeCustomerId)
+        {
+            const string sql = @"
+                SELECT Id, Email, FirstName, LastName, Subscription, SubscriptionExpiresAt,
+                       SubscriptionSource, StripeCustomerId, StripeSubscriptionId, GracePeriodUntil, IsAdmin
+                FROM Users WHERE StripeCustomerId = @StripeCustomerId;";
+            return await _connection.QuerySingleOrDefaultAsync<User>(sql, new { StripeCustomerId = stripeCustomerId });
         }
 
         public async Task<User?> GetUserByEmail(string email)

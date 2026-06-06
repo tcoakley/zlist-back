@@ -1,6 +1,12 @@
+using Microsoft.Extensions.Options;
+using Stripe;
+using zListBack.Configurations;
 using zListBack.Dtos;
 using zListBack.Models;
 using zListBack.Repositories;
+using StripeCustomerSvc = Stripe.CustomerService;
+using StripeSubscriptionSvc = Stripe.SubscriptionService;
+using StripeSubscriptionItemSvc = Stripe.SubscriptionItemService;
 
 namespace zListBack.Services
 {
@@ -9,15 +15,21 @@ namespace zListBack.Services
         private const int FreeListLimit = 2;
         private const int GraceDays = 7;
 
-        private readonly SubscriptionRepository _subscriptionRepo;
-        private readonly UserRepository _userRepo;
-        private readonly UserPaymentHistoryRepository _paymentHistoryRepo;
+        private readonly ISubscriptionRepository _subscriptionRepo;
+        private readonly IUserRepository _userRepo;
+        private readonly IUserPaymentHistoryRepository _paymentHistoryRepo;
+        private readonly StripeSettings _stripe;
 
-        public SubscriptionService(SubscriptionRepository subscriptionRepo, UserRepository userRepo, UserPaymentHistoryRepository paymentHistoryRepo)
+        public SubscriptionService(
+            ISubscriptionRepository subscriptionRepo,
+            IUserRepository userRepo,
+            IUserPaymentHistoryRepository paymentHistoryRepo,
+            IOptions<StripeSettings> stripeOptions)
         {
             _subscriptionRepo = subscriptionRepo;
             _userRepo = userRepo;
             _paymentHistoryRepo = paymentHistoryRepo;
+            _stripe = stripeOptions.Value;
         }
 
         public Task<bool> IsPremium(int userId) =>
@@ -34,7 +46,6 @@ namespace zListBack.Services
             _subscriptionRepo.GetOwnedListCount(userId);
 
         // Returns true if this is the sponsor's first collaborator (included in base price).
-        // Returns false if they already have one — adding another will require a Stripe seat charge.
         public async Task<bool> IsFirstCollaboratorSlot(int sponsorUserId)
         {
             var count = await _subscriptionRepo.GetActiveSponsoredCount(sponsorUserId);
@@ -44,8 +55,7 @@ namespace zListBack.Services
         public Task<bool> IsAlreadySponsored(int sponsorUserId, int sponsoredUserId) =>
             _subscriptionRepo.HasActiveSponsoredCollaborator(sponsorUserId, sponsoredUserId);
 
-        // Called when a Premium user confirms they want to sponsor a collaborator.
-        // If this is the second or later collaborator, also calls the Stripe stub to add a seat.
+        // Adds a sponsored collaborator. First slot is free; second+ adds a Stripe seat.
         public async Task<Result<bool>> SponsorCollaborator(int sponsorUserId, int sponsoredUserId)
         {
             try
@@ -54,7 +64,7 @@ namespace zListBack.Services
                 await _subscriptionRepo.AddSponsoredCollaborator(sponsorUserId, sponsoredUserId);
 
                 if (!isFirst)
-                    await AddStripeCollaboratorSeat(sponsorUserId); // TODO: Stripe
+                    await AddStripeCollaboratorSeat(sponsorUserId);
 
                 return Result<bool>.Ok(true);
             }
@@ -64,27 +74,25 @@ namespace zListBack.Services
             }
         }
 
-        // Called when a sponsor removes a collaborator or their subscription lapses.
-        // Applies a 7-day grace, then evaluates whether the collaborator retains shared list access.
+        // Starts a 7-day grace for the removed collaborator, then removes the Stripe seat.
         public async Task RemoveSponsoredCollaborator(int sponsorUserId, int sponsoredUserId)
         {
             var graceUntil = DateTime.UtcNow.AddDays(GraceDays);
             await _subscriptionRepo.StartSponsorshipGrace(sponsorUserId, sponsoredUserId, graceUntil);
-            await RemoveStripeCollaboratorSeat(sponsorUserId); // TODO: Stripe
+            await RemoveStripeCollaboratorSeat(sponsorUserId);
         }
 
-        // Called after grace period expires for a sponsored collaborator.
-        // Revokes shared list access if the sponsor's free slot is already taken by someone else.
+        // Called after grace expires — deactivates the record and revokes list access if the free slot is taken.
         public async Task FinalizeCollaboratorDowngrade(int sponsorUserId, int sponsoredUserId)
         {
             await _subscriptionRepo.DeactivateSponsoredCollaborator(sponsorUserId, sponsoredUserId);
             var freeCount = await _subscriptionRepo.GetFreeCollaboratorCount(sponsorUserId);
             if (freeCount > 0)
                 await _subscriptionRepo.RevokeSharedListAccess(sponsorUserId, sponsoredUserId);
-            // else: collaborator becomes the sponsor's free slot — access retained
+            // else: collaborator slides into the free slot — access retained
         }
 
-        // Called when a Premium user's subscription lapses (failed payment after grace, or cancellation at period end).
+        // Called when a premium subscription lapses (failed payment after grace).
         public async Task HandleSponsorLapse(int sponsorUserId)
         {
             var graceUntil = DateTime.UtcNow.AddDays(GraceDays);
@@ -92,8 +100,7 @@ namespace zListBack.Services
             await _subscriptionRepo.SetGracePeriod(sponsorUserId, graceUntil);
         }
 
-        // Called when a Premium user cancels entirely (account deletion or full cancel).
-        // All collaborators get 7-day grace, then lose shared list access.
+        // Called when a subscription is cancelled (fires from webhook customer.subscription.deleted).
         public async Task HandleSponsorCancellation(int sponsorUserId)
         {
             var graceUntil = DateTime.UtcNow.AddDays(GraceDays);
@@ -101,7 +108,7 @@ namespace zListBack.Services
             await _subscriptionRepo.SetGracePeriod(sponsorUserId, graceUntil);
         }
 
-        // Called after the grace period ends for a cancelled sponsor.
+        // Called after the grace period ends — removes access and sets user to free.
         public async Task FinalizeSponsorCancellation(int sponsorUserId)
         {
             await _subscriptionRepo.DeactivateAllSponsorships(sponsorUserId);
@@ -115,35 +122,73 @@ namespace zListBack.Services
         public Task<IEnumerable<UserPaymentHistory>> GetPaymentHistory(int userId) =>
             _paymentHistoryRepo.GetByUserIdAsync(userId);
 
-        // Upgrades the user to premium. Stripe subscription creation is stubbed — replace with real call when ready.
-        public async Task<Result<bool>> Upgrade(int userId, string email)
+        // ─── Upgrade ─────────────────────────────────────────────────────────────────
+        // Creates a Stripe customer (if needed) and an incomplete subscription.
+        // Returns the PaymentIntent clientSecret so the frontend can confirm payment
+        // via the Stripe Payment Element.
+
+        public async Task<Result<UpgradeResponse>> Upgrade(int userId, string email)
         {
-            // TODO: Stripe — call CreateStripeCustomer then CreateStripeSubscription
-            // On success Stripe returns customerId + subscriptionId; persist via SetStripeIds
-            // For now we simulate a successful subscription starting today, renewing monthly.
-            var fakeExpiresAt = DateTime.UtcNow.AddMonths(1);
-            await _subscriptionRepo.SetStripeIds(userId, "cus_stub", "sub_stub");
-            await _subscriptionRepo.SetUserSubscription(userId, "premium", "stripe", fakeExpiresAt);
-            return Result<bool>.Ok(true);
+            try
+            {
+                var userResult = await _userRepo.GetUserAsync(userId);
+                if (!userResult.Success || userResult.Model == null)
+                    return Result<UpgradeResponse>.Fail("User not found.");
+
+                var user = userResult.Model;
+
+                var customerId = string.IsNullOrEmpty(user.StripeCustomerId)
+                    ? await CreateStripeCustomer(userId, email)
+                    : user.StripeCustomerId;
+
+                var (subscriptionId, clientSecret) = await CreateStripeSubscription(userId, customerId);
+
+                return Result<UpgradeResponse>.Ok(new UpgradeResponse
+                {
+                    ClientSecret = clientSecret,
+                    SubscriptionId = subscriptionId
+                });
+            }
+            catch (StripeException ex)
+            {
+                return Result<UpgradeResponse>.Fail(ex.StripeError?.Message ?? ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return Result<UpgradeResponse>.Fail(ex.Message);
+            }
         }
 
-        // Cancels the user's subscription at period end. Stripe cancellation is stubbed.
+        // ─── Cancel ──────────────────────────────────────────────────────────────────
+        // Sets cancel_at_period_end = true in Stripe. The user keeps access until the
+        // current period ends. The webhook customer.subscription.deleted fires at that
+        // point and calls HandleSponsorCancellation / FinalizeSponsorCancellation.
+
         public async Task<Result<bool>> Cancel(int userId)
         {
-            var userResult = await _userRepo.GetUserAsync(userId);
-            if (!userResult.Success || userResult.Model == null)
-                return Result<bool>.Fail("User not found.");
+            try
+            {
+                var userResult = await _userRepo.GetUserAsync(userId);
+                if (!userResult.Success || userResult.Model == null)
+                    return Result<bool>.Fail("User not found.");
 
-            // TODO: Stripe — call CancelStripeSubscription (at_period_end: true)
-            // Stripe will fire customer.subscription.deleted webhook at period end;
-            // HandleSponsorLapse should be called from that webhook handler, not here.
-            // For now we simulate immediate cancellation so the flow can be tested.
-            await HandleSponsorCancellation(userId);
-            await FinalizeSponsorCancellation(userId);
-            return Result<bool>.Ok(true);
+                var subscriptionId = userResult.Model.StripeSubscriptionId;
+                if (!string.IsNullOrEmpty(subscriptionId))
+                    await CancelStripeSubscription(subscriptionId);
+
+                return Result<bool>.Ok(true);
+            }
+            catch (StripeException ex)
+            {
+                return Result<bool>.Fail(ex.StripeError?.Message ?? ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
-        // ─── Admin / Gift ────────────────────────────────────────────────────────────
+        // ─── Admin / Gift ─────────────────────────────────────────────────────────────
 
         public async Task<Result<bool>> GrantPremium(string email, string source, DateTime? expiresAt)
         {
@@ -176,36 +221,114 @@ namespace zListBack.Services
             }
         }
 
-        // ─── Stripe stubs — wire up once Stripe account is ready ─────────────────────
+        // ─── Stripe private methods ───────────────────────────────────────────────────
 
-        private Task CreateStripeCustomer(int userId, string email)
+        private async Task<string> CreateStripeCustomer(int userId, string email)
         {
-            // TODO: Stripe — call Stripe.CustomerService.CreateAsync, persist customer ID via SetStripeIds
-            return Task.CompletedTask;
+            var svc = new StripeCustomerSvc();
+            var customer = await svc.CreateAsync(new CustomerCreateOptions
+            {
+                Email = email,
+                Metadata = new Dictionary<string, string> { ["userId"] = userId.ToString() }
+            });
+            await _subscriptionRepo.SetStripeIds(userId, customer.Id, string.Empty);
+            return customer.Id;
         }
 
-        private Task CreateStripeSubscription(int userId)
+        private async Task<(string SubscriptionId, string ClientSecret)> CreateStripeSubscription(int userId, string customerId)
         {
-            // TODO: Stripe — create subscription with base price ID ($1.99/month), persist subscription ID
-            return Task.CompletedTask;
+            var svc = new StripeSubscriptionSvc();
+            var subscription = await svc.CreateAsync(new SubscriptionCreateOptions
+            {
+                Customer = customerId,
+                Items = new List<SubscriptionItemOptions>
+                {
+                    new() { Price = _stripe.PremiumPriceId }
+                },
+                PaymentBehavior = "default_incomplete",
+                PaymentSettings = new SubscriptionPaymentSettingsOptions
+                {
+                    SaveDefaultPaymentMethod = "on_subscription"
+                },
+                Expand = new List<string> { "latest_invoice", "latest_invoice.confirmation_secret" }
+            });
+
+            await _subscriptionRepo.SetStripeIds(userId, customerId, subscription.Id);
+
+            // Stripe.net v52+ uses Invoice.ConfirmationSecret (replaces PaymentIntent.ClientSecret)
+            var clientSecret = subscription.LatestInvoice?.ConfirmationSecret?.ClientSecret
+                ?? throw new InvalidOperationException("Stripe did not return a confirmation secret.");
+
+            return (subscription.Id, clientSecret);
         }
 
-        private Task AddStripeCollaboratorSeat(int sponsorUserId)
+        private async Task AddStripeCollaboratorSeat(int sponsorUserId)
         {
-            // TODO: Stripe — increment quantity on the collaborator seat price item on the sponsor's subscription
-            return Task.CompletedTask;
+            var userResult = await _userRepo.GetUserAsync(sponsorUserId);
+            var subscriptionId = userResult.Model?.StripeSubscriptionId;
+            if (string.IsNullOrEmpty(subscriptionId)) return;
+
+            var subSvc = new StripeSubscriptionSvc();
+            var subscription = await subSvc.GetAsync(subscriptionId, new SubscriptionGetOptions
+            {
+                Expand = new List<string> { "items" }
+            });
+
+            var seatItem = subscription.Items.Data
+                .FirstOrDefault(i => i.Price.Id == _stripe.CollaboratorPriceId);
+
+            var itemSvc = new StripeSubscriptionItemSvc();
+            if (seatItem != null)
+            {
+                await itemSvc.UpdateAsync(seatItem.Id, new SubscriptionItemUpdateOptions
+                {
+                    Quantity = seatItem.Quantity + 1
+                });
+            }
+            else
+            {
+                await itemSvc.CreateAsync(new SubscriptionItemCreateOptions
+                {
+                    Subscription = subscriptionId,
+                    Price = _stripe.CollaboratorPriceId,
+                    Quantity = 1
+                });
+            }
         }
 
-        private Task RemoveStripeCollaboratorSeat(int sponsorUserId)
+        private async Task RemoveStripeCollaboratorSeat(int sponsorUserId)
         {
-            // TODO: Stripe — decrement quantity on the collaborator seat price item
-            return Task.CompletedTask;
+            var userResult = await _userRepo.GetUserAsync(sponsorUserId);
+            var subscriptionId = userResult.Model?.StripeSubscriptionId;
+            if (string.IsNullOrEmpty(subscriptionId)) return;
+
+            var subSvc = new StripeSubscriptionSvc();
+            var subscription = await subSvc.GetAsync(subscriptionId, new SubscriptionGetOptions
+            {
+                Expand = new List<string> { "items" }
+            });
+
+            var seatItem = subscription.Items.Data
+                .FirstOrDefault(i => i.Price.Id == _stripe.CollaboratorPriceId);
+            if (seatItem == null) return;
+
+            var itemSvc = new StripeSubscriptionItemSvc();
+            if (seatItem.Quantity <= 1)
+                await itemSvc.DeleteAsync(seatItem.Id);
+            else
+                await itemSvc.UpdateAsync(seatItem.Id, new SubscriptionItemUpdateOptions
+                {
+                    Quantity = seatItem.Quantity - 1
+                });
         }
 
-        private Task CancelStripeSubscription(int userId)
+        private async Task CancelStripeSubscription(string subscriptionId)
         {
-            // TODO: Stripe — call Stripe.SubscriptionService.CancelAsync (at_period_end: true)
-            return Task.CompletedTask;
+            var svc = new StripeSubscriptionSvc();
+            await svc.UpdateAsync(subscriptionId, new SubscriptionUpdateOptions
+            {
+                CancelAtPeriodEnd = true
+            });
         }
     }
 }

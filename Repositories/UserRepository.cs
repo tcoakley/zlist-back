@@ -4,7 +4,7 @@ using zListBack.Models;
 
 namespace zListBack.Repositories
 {
-    public class UserRepository
+    public class UserRepository : IUserRepository
     {
         private readonly IDbConnection _connection;
 
@@ -232,6 +232,23 @@ namespace zListBack.Repositories
             {
                 return Result<string>.Fail(ex.Message);
             }
+        }
+
+        public async Task UpdateLastActiveAt(int userId)
+        {
+            const string sql = @"
+                UPDATE Users
+                SET LastActiveAt = GETUTCDATE(),
+                    InactivityNoticeSentAt = NULL
+                WHERE Id = @UserId;";
+            await _connection.ExecuteAsync(sql, new { UserId = userId });
+        }
+
+        public async Task ClearInactivityNotice(int userId)
+        {
+            const string sql = @"
+                UPDATE Users SET InactivityNoticeSentAt = NULL WHERE Id = @UserId;";
+            await _connection.ExecuteAsync(sql, new { UserId = userId });
         }
 
         private string GeneratePassword()

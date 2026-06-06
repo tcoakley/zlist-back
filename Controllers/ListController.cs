@@ -5,6 +5,7 @@ using System.Security.Claims;
 using zListBack.Dtos;
 using zListBack.Hubs;
 using zListBack.Models;
+using zListBack.Repositories;
 using zListBack.Services;
 
 namespace zListBack.Controllers
@@ -20,11 +21,14 @@ namespace zListBack.Controllers
         private readonly string _appBaseUrl;
         private readonly int _userId;
 
-        public ListController(ListService listService, EmailService emailService, IHubContext<RunHub> hub, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
+        private readonly IUserRepository _userRepo;
+
+        public ListController(ListService listService, EmailService emailService, IHubContext<RunHub> hub, IConfiguration configuration, IHttpContextAccessor httpContextAccessor, IUserRepository userRepo)
         {
             _listService = listService;
             _emailService = emailService;
             _hub = hub;
+            _userRepo = userRepo;
             _appBaseUrl = configuration["AppSettings:BaseUrl"] ?? "https://localhost:4200";
 
             var userIdClaim = httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -109,6 +113,7 @@ namespace zListBack.Controllers
         [HttpPut("SetListRunItemCompletion/{runItemId}")]
         public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, [FromBody] ToggleRunItemRequest request)
         {
+            _ = _userRepo.UpdateLastActiveAt(_userId);
             var result = await _listService.SetListRunItemCompletion(runItemId, request.IsComplete, _userId);
             if (result.Success)
             {
@@ -129,6 +134,7 @@ namespace zListBack.Controllers
         [HttpPost("CreateListRun/{listId}")]
         public async Task<Result<ListRunModel>> CreateListRun(int listId)
         {
+            _ = _userRepo.UpdateLastActiveAt(_userId);
             return await _listService.CreateListRun(listId);
         }
 

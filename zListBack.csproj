@@ -14,6 +14,7 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.0" />
+    <PackageReference Include="Stripe.net" Version="52.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
   </ItemGroup>
 
@@ -24,6 +25,12 @@
 
 <ItemGroup>
     <None Include="SQLScripts\**" />
+</ItemGroup>
+
+<ItemGroup>
+    <Compile Remove="zListBack.Tests\**" />
+    <EmbeddedResource Remove="zListBack.Tests\**" />
+    <None Remove="zListBack.Tests\**" />
 </ItemGroup>
 
 </Project>

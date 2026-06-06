@@ -14,14 +14,14 @@ namespace zListBack.Controllers
     public class SubscriptionController : ControllerBase
     {
         private readonly SubscriptionService _subscriptionService;
-        private readonly SubscriptionRepository _subscriptionRepo;
-        private readonly UserRepository _userRepo;
+        private readonly ISubscriptionRepository _subscriptionRepo;
+        private readonly IUserRepository _userRepo;
         private readonly ListRepository _listRepo;
         private readonly EmailService _emailService;
 
         private int UserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-        public SubscriptionController(SubscriptionService subscriptionService, SubscriptionRepository subscriptionRepo, UserRepository userRepo, ListRepository listRepo, EmailService emailService)
+        public SubscriptionController(SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepo, IUserRepository userRepo, ListRepository listRepo, EmailService emailService)
         {
             _subscriptionService = subscriptionService;
             _subscriptionRepo = subscriptionRepo;
@@ -79,16 +79,16 @@ namespace zListBack.Controllers
         /// once the Stripe account and price IDs are configured.
         /// </summary>
         [HttpPost("upgrade")]
-        public async Task<Result<bool>> Upgrade()
+        public async Task<Result<UpgradeResponse>> Upgrade()
         {
             var userId = UserId;
             var userResult = await _userRepo.GetUserAsync(userId);
             if (!userResult.Success || userResult.Model == null)
-                return Result<bool>.Fail("User not found.");
+                return Result<UpgradeResponse>.Fail("User not found.");
 
             var isPremium = await _subscriptionService.IsPremium(userId);
             if (isPremium)
-                return Result<bool>.Fail("Account is already premium.");
+                return Result<UpgradeResponse>.Fail("Account is already premium.");
 
             return await _subscriptionService.Upgrade(userId, userResult.Model.Email);
         }
