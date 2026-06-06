@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using zListBack.Dtos;
 using zListBack.Models;
 
 namespace zListBack.Repositories
@@ -163,6 +164,29 @@ namespace zListBack.Repositories
                 INNER JOIN UserLists ownerUl ON ownerUl.ListId = ul.ListId AND ownerUl.UserId = @SponsorUserId AND ownerUl.IsOwner = 1
                 WHERE ul.UserId != @SponsorUserId AND ul.IsOwner = 0;";
             await _connection.ExecuteAsync(sql, new { SponsorUserId = sponsorUserId });
+        }
+
+        public async Task<User?> GetSponsor(int sponsoredUserId)
+        {
+            const string sql = @"
+                SELECT TOP 1 u.FirstName, u.LastName
+                FROM SponsoredCollaborators sc
+                INNER JOIN Users u ON u.Id = sc.SponsorUserId
+                WHERE sc.SponsoredUserId = @SponsoredUserId AND sc.IsActive = 1
+                ORDER BY sc.CreatedAt;";
+            return await _connection.QuerySingleOrDefaultAsync<User>(sql, new { SponsoredUserId = sponsoredUserId });
+        }
+
+        public async Task<IEnumerable<SponsoredCollaboratorModel>> GetSponsoredCollaborators(int sponsorUserId)
+        {
+            const string sql = @"
+                SELECT sc.SponsoredUserId AS UserId, u.Email, u.FirstName, u.LastName,
+                       sc.CreatedAt, sc.IsActive, sc.GraceUntil
+                FROM SponsoredCollaborators sc
+                INNER JOIN Users u ON u.Id = sc.SponsoredUserId
+                WHERE sc.SponsorUserId = @SponsorUserId
+                ORDER BY sc.CreatedAt;";
+            return await _connection.QueryAsync<SponsoredCollaboratorModel>(sql, new { SponsorUserId = sponsorUserId });
         }
 
         public async Task<bool> NeedsDowngradeSelection(int userId)

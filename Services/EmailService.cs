@@ -135,6 +135,111 @@ namespace zListBack.Services
             }
         }
 
+        public async Task<Result<bool>> SendCollaboratorAddedEmail(
+            string recipientEmail, string recipientFirstName,
+            string sponsorName, bool isFreeSlot)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                string body;
+                if (isFreeSlot)
+                {
+                    body = $@"
+                        <p>Hi {recipientFirstName},</p>
+                        <p><strong>{sponsorName}</strong> has added you as a collaborator on their zChecklist lists.
+                        You now have access to all of their shared lists at no cost to you.</p>
+
+                        <h3>What you can do now</h3>
+                        <ul>
+                            <li>Join and run any list {sponsorName} shares with you</li>
+                            <li>Check off items in real time alongside other collaborators</li>
+                            <li>Create and run up to 2 lists of your own for free</li>
+                        </ul>
+
+                        <h3>Want more?</h3>
+                        <p>Upgrade to <strong>Premium ($1.99/month)</strong> to unlock:</p>
+                        <ul>
+                            <li>Unlimited lists of your own</li>
+                            <li>Create and manage your own shared lists</li>
+                            <li>Add your own free collaborator</li>
+                        </ul>
+                        <p><a href=""{_baseUrl}/account"">View plans and upgrade</a></p>
+
+                        <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>
+                        <p>— The zChecklist Team</p>";
+                }
+                else
+                {
+                    body = $@"
+                        <p>Hi {recipientFirstName},</p>
+                        <p><strong>{sponsorName}</strong> has added you as a collaborator on their zChecklist lists.
+                        Your access is covered by {sponsorName} and you can join all of their shared lists.</p>
+                        <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>
+                        <p>— The zChecklist Team</p>";
+                }
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = $"{sponsorName} added you as a collaborator on zChecklist",
+                    Body = body,
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> SendCollaboratorRemovedEmail(
+            string recipientEmail, string recipientFirstName,
+            string sponsorName, DateTime graceUntil)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "Your zChecklist collaborator access is ending",
+                    Body = $@"
+                        <p>Hi {recipientFirstName},</p>
+                        <p><strong>{sponsorName}</strong> has removed you as a collaborator on their zChecklist lists.</p>
+                        <p>You will retain access to their shared lists through <strong>{graceUntil:MMMM d, yyyy}</strong>,
+                        after which you will no longer be able to view or run them.</p>
+                        <p>Your own lists and run history are not affected.</p>
+
+                        <h3>Keep your full access</h3>
+                        <p>Upgrade to <strong>Premium ($1.99/month)</strong> to create and manage your own shared lists
+                        and add your own collaborators.</p>
+                        <p><a href=""{_baseUrl}/account"">View plans and upgrade</a></p>
+
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         public async Task<Result<bool>> SendContactEmail(int userId, string userEmail, string firstName, string lastName, string contactType, string message)
         {
             try

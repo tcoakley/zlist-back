@@ -1,3 +1,4 @@
+using zListBack.Dtos;
 using zListBack.Models;
 using zListBack.Repositories;
 
@@ -10,11 +11,13 @@ namespace zListBack.Services
 
         private readonly SubscriptionRepository _subscriptionRepo;
         private readonly UserRepository _userRepo;
+        private readonly UserPaymentHistoryRepository _paymentHistoryRepo;
 
-        public SubscriptionService(SubscriptionRepository subscriptionRepo, UserRepository userRepo)
+        public SubscriptionService(SubscriptionRepository subscriptionRepo, UserRepository userRepo, UserPaymentHistoryRepository paymentHistoryRepo)
         {
             _subscriptionRepo = subscriptionRepo;
             _userRepo = userRepo;
+            _paymentHistoryRepo = paymentHistoryRepo;
         }
 
         public Task<bool> IsPremium(int userId) =>
@@ -104,6 +107,40 @@ namespace zListBack.Services
             await _subscriptionRepo.DeactivateAllSponsorships(sponsorUserId);
             await _subscriptionRepo.RevokeAllSharedListAccess(sponsorUserId);
             await _subscriptionRepo.SetUserSubscription(sponsorUserId, "free", "free", null);
+        }
+
+        public Task<IEnumerable<SponsoredCollaboratorModel>> GetSponsoredCollaborators(int sponsorUserId) =>
+            _subscriptionRepo.GetSponsoredCollaborators(sponsorUserId);
+
+        public Task<IEnumerable<UserPaymentHistory>> GetPaymentHistory(int userId) =>
+            _paymentHistoryRepo.GetByUserIdAsync(userId);
+
+        // Upgrades the user to premium. Stripe subscription creation is stubbed — replace with real call when ready.
+        public async Task<Result<bool>> Upgrade(int userId, string email)
+        {
+            // TODO: Stripe — call CreateStripeCustomer then CreateStripeSubscription
+            // On success Stripe returns customerId + subscriptionId; persist via SetStripeIds
+            // For now we simulate a successful subscription starting today, renewing monthly.
+            var fakeExpiresAt = DateTime.UtcNow.AddMonths(1);
+            await _subscriptionRepo.SetStripeIds(userId, "cus_stub", "sub_stub");
+            await _subscriptionRepo.SetUserSubscription(userId, "premium", "stripe", fakeExpiresAt);
+            return Result<bool>.Ok(true);
+        }
+
+        // Cancels the user's subscription at period end. Stripe cancellation is stubbed.
+        public async Task<Result<bool>> Cancel(int userId)
+        {
+            var userResult = await _userRepo.GetUserAsync(userId);
+            if (!userResult.Success || userResult.Model == null)
+                return Result<bool>.Fail("User not found.");
+
+            // TODO: Stripe — call CancelStripeSubscription (at_period_end: true)
+            // Stripe will fire customer.subscription.deleted webhook at period end;
+            // HandleSponsorLapse should be called from that webhook handler, not here.
+            // For now we simulate immediate cancellation so the flow can be tested.
+            await HandleSponsorCancellation(userId);
+            await FinalizeSponsorCancellation(userId);
+            return Result<bool>.Ok(true);
         }
 
         // ─── Admin / Gift ────────────────────────────────────────────────────────────
