@@ -260,6 +260,43 @@ namespace zListBack.Controllers
 
         // ─── Admin endpoints ─────────────────────────────────────────────────────────
 
+        [HttpGet("admin/status")]
+        public async Task<Result<SubscriptionStatusModel>> AdminGetStatus([FromQuery] string email)
+        {
+            if (!await IsAdmin()) return Result<SubscriptionStatusModel>.Fail("Unauthorized.");
+
+            var user = await _subscriptionRepo.GetUserByEmail(email);
+            if (user == null) return Result<SubscriptionStatusModel>.Fail("No account found with that email.");
+
+            var isPremium = await _subscriptionService.IsPremium(user.Id);
+            var isSponsored = isPremium && user.Subscription != "premium";
+            var ownedCount = await _subscriptionRepo.GetOwnedListCount(user.Id);
+
+            string? sponsorName = null;
+            if (isSponsored)
+            {
+                var sponsor = await _subscriptionRepo.GetSponsor(user.Id);
+                if (sponsor != null)
+                {
+                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName[0]}.";
+                    sponsorName = $"{sponsor.FirstName}{last}".Trim();
+                }
+            }
+
+            return Result<SubscriptionStatusModel>.Ok(new SubscriptionStatusModel
+            {
+                Subscription = user.Subscription,
+                SubscriptionSource = user.SubscriptionSource,
+                ExpiresAt = user.SubscriptionExpiresAt,
+                GracePeriodUntil = user.GracePeriodUntil,
+                IsPremium = isPremium,
+                IsSponsored = isSponsored,
+                SponsorName = sponsorName,
+                OwnedListCount = ownedCount,
+                OwnedListLimit = isPremium ? -1 : 2
+            });
+        }
+
         [HttpPost("admin/grant")]
         public async Task<Result<bool>> AdminGrantPremium([FromBody] AdminGrantPremiumRequest request)
         {
@@ -268,14 +305,33 @@ namespace zListBack.Controllers
             if (!validSources.Contains(request.Source))
                 return Result<bool>.Fail("Invalid source. Use 'gift' or 'admin'.");
 
-            return await _subscriptionService.GrantPremium(request.Email, request.Source, request.ExpiresAt);
+            var user = await _subscriptionRepo.GetUserByEmail(request.Email);
+            if (user == null) return Result<bool>.Fail("No account found with that email.");
+
+            var result = await _subscriptionService.GrantPremium(request.Email, request.Source, request.ExpiresAt);
+            if (result.Success)
+            {
+                var firstName = user.FirstName ?? user.Email;
+                _ = _emailService.SendAdminGrantedEmail(user.Email, firstName, request.Source, request.ExpiresAt);
+            }
+            return result;
         }
 
         [HttpPost("admin/revoke")]
         public async Task<Result<bool>> AdminRevokePremium([FromBody] AdminRevokeRequest request)
         {
             if (!await IsAdmin()) return Result<bool>.Fail("Unauthorized.");
-            return await _subscriptionService.RevokePremium(request.Email);
+
+            var user = await _subscriptionRepo.GetUserByEmail(request.Email);
+            if (user == null) return Result<bool>.Fail("No account found with that email.");
+
+            var result = await _subscriptionService.RevokePremium(request.Email);
+            if (result.Success)
+            {
+                var firstName = user.FirstName ?? user.Email;
+                _ = _emailService.SendAdminRevokedEmail(user.Email, firstName);
+            }
+            return result;
         }
 
         private async Task<bool> IsAdmin()

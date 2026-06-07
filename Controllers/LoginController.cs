@@ -39,6 +39,7 @@ namespace zListBack.Controllers
             }
 
             var user = result.Model!;
+            _ = _userRepository.UpdateLastActiveAt(user.Id);
             var accessToken = JwtTokenGenerator.GenerateToken(user, _configuration);
 
 

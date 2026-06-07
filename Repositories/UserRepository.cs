@@ -64,12 +64,12 @@ namespace zListBack.Repositories
             try
             {
                 const string sql = @"
-                    INSERT INTO Users (Email, FirstName, LastName, Password, CreatedAt)
+                    INSERT INTO Users (Email, FirstName, LastName, Password, CreatedAt, LastActiveAt)
                     OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
                            INSERTED.Password, INSERTED.ResetPassword,
                            INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
                            INSERTED.CreatedAt, INSERTED.UpdatedAt
-                    VALUES (@Email, @FirstName, @LastName, @Password, @CreatedAt);";
+                    VALUES (@Email, @FirstName, @LastName, @Password, @CreatedAt, @CreatedAt);";
 
                 var inserted = await _connection.QuerySingleAsync<User>(
                     sql,

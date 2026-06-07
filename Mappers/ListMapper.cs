@@ -31,6 +31,8 @@ namespace zListBack.Mappers
             LastRun = entity.LastRun,
             TotalItems = entity.TotalItems,
             IsOwner = entity.IsOwner,
+            MemberCount = entity.MemberCount,
+            OwnerName = entity.OwnerName,
             Items = entity.Items.Select(ListItemMapper.ToModel).ToList()
         };
     }

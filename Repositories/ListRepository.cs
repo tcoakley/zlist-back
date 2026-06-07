@@ -429,7 +429,12 @@ namespace zListBack.Repositories
                         COUNT(DISTINCT li.Id) AS TotalItems,
                         COUNT(DISTINCT lr.Id) AS TotalRuns,
                         MAX(lr.CreatedAt)     AS LastRun,
-                        ul.IsOwner
+                        ul.IsOwner,
+                        (SELECT COUNT(*) FROM UserLists ul2 WHERE ul2.ListId = l.Id) AS MemberCount,
+                        (SELECT TOP 1 RTRIM(ISNULL(u2.FirstName, '') + ' ' + ISNULL(u2.LastName, ''))
+                         FROM UserLists ul2
+                         INNER JOIN Users u2 ON u2.Id = ul2.UserId
+                         WHERE ul2.ListId = l.Id AND ul2.IsOwner = 1) AS OwnerName
                     FROM Lists l
                     INNER JOIN UserLists ul ON ul.ListId = l.Id
                     LEFT JOIN ListItems li  ON li.ListId = l.Id

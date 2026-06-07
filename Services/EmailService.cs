@@ -460,6 +460,73 @@ namespace zListBack.Services
             catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
         }
 
+        public virtual async Task<Result<bool>> SendAdminGrantedEmail(
+            string recipientEmail, string firstName, string source, DateTime? expiresAt)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var expiryLine = expiresAt.HasValue
+                    ? $"<p>Your access is active until <strong>{expiresAt.Value:MMMM d, yyyy}</strong>.</p>"
+                    : string.Empty;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "You've been given zChecklist Premium",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>Your zChecklist account has been upgraded to <strong>Premium</strong>. Here's what you now have access to:</p>
+                        <ul>
+                            <li>Unlimited checklists</li>
+                            <li>Create and manage shared lists</li>
+                            <li>1 free collaborator included</li>
+                            <li>7-day grace period on any billing issues</li>
+                        </ul>
+                        {expiryLine}
+                        <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
+        public virtual async Task<Result<bool>> SendAdminRevokedEmail(string recipientEmail, string firstName)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "Your zChecklist Premium access has ended",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>Your zChecklist Premium access has been removed. Your account is now on the free plan,
+                        which includes up to 2 checklists and full run history.</p>
+                        <p>Your existing lists and run history are not affected.</p>
+                        <p>If you'd like to continue with Premium, you can subscribe anytime from your
+                        <a href=""{_baseUrl}/account"">Account page</a>.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+        }
+
         public virtual async Task<Result<bool>> SendContactEmail(int userId, string userEmail, string firstName, string lastName, string contactType, string message)
         {
             try
