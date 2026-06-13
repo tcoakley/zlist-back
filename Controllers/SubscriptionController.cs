@@ -30,7 +30,7 @@ namespace zListBack.Controllers
             _emailService = emailService;
         }
 
-        // ─── Account status ──────────────────────────────────────────────────────────
+        // === Account status ==========================================================
 
         [HttpGet("status")]
         public async Task<Result<SubscriptionStatusModel>> GetStatus()
@@ -62,6 +62,7 @@ namespace zListBack.Controllers
                 SubscriptionSource = user.SubscriptionSource,
                 ExpiresAt = user.SubscriptionExpiresAt,
                 GracePeriodUntil = user.GracePeriodUntil,
+                CancellationScheduledAt = user.CancellationScheduledAt,
                 IsPremium = isPremium,
                 IsSponsored = isSponsored,
                 SponsorName = sponsorName,
@@ -70,7 +71,7 @@ namespace zListBack.Controllers
             });
         }
 
-        // ─── Upgrade / Cancel ────────────────────────────────────────────────────────
+        // === Upgrade / Cancel ========================================================
 
         /// <summary>
         /// Upgrades the current user from free to premium.
@@ -95,10 +96,6 @@ namespace zListBack.Controllers
 
         /// <summary>
         /// Cancels the current user's premium subscription.
-        /// TODO: Stripe — this stub simulates an immediate cancellation.
-        /// With real Stripe, call CancelAsync(at_period_end: true) so the user keeps
-        /// access until the period ends; the webhook fires customer.subscription.deleted
-        /// at that point and HandleSponsorLapse is called from there instead.
         /// </summary>
         [HttpPost("cancel")]
         public async Task<Result<bool>> Cancel()
@@ -111,7 +108,7 @@ namespace zListBack.Controllers
             return await _subscriptionService.Cancel(userId);
         }
 
-        // ─── Downgrade list selection ─────────────────────────────────────────────────
+        // === Downgrade list selection =================================================
 
         [HttpGet("needs-selection")]
         public async Task<Result<SelectionStatusModel>> NeedsSelection()
@@ -147,7 +144,7 @@ namespace zListBack.Controllers
             return Result<bool>.Ok(true);
         }
 
-        // ─── Sponsored collaborators ─────────────────────────────────────────────────
+        // === Sponsored collaborators =================================================
 
         /// <summary>
         /// Returns all users the current user is sponsoring (free slot + paid seats).
@@ -244,7 +241,7 @@ namespace zListBack.Controllers
             return Result<bool>.Ok(true);
         }
 
-        // ─── Payment history ─────────────────────────────────────────────────────────
+        // === Payment history =========================================================
 
         /// <summary>
         /// Returns the current user's payment history, recorded from Stripe webhook events.
@@ -258,7 +255,7 @@ namespace zListBack.Controllers
             return Result<IEnumerable<UserPaymentHistory>>.Ok(history);
         }
 
-        // ─── Admin endpoints ─────────────────────────────────────────────────────────
+        // === Admin endpoints =========================================================
 
         [HttpGet("admin/status")]
         public async Task<Result<SubscriptionStatusModel>> AdminGetStatus([FromQuery] string email)
@@ -289,6 +286,7 @@ namespace zListBack.Controllers
                 SubscriptionSource = user.SubscriptionSource,
                 ExpiresAt = user.SubscriptionExpiresAt,
                 GracePeriodUntil = user.GracePeriodUntil,
+                CancellationScheduledAt = user.CancellationScheduledAt,
                 IsPremium = isPremium,
                 IsSponsored = isSponsored,
                 SponsorName = sponsorName,

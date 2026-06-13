@@ -11,7 +11,7 @@ namespace zListBack.Tests;
 
 public class CleanupServiceTests
 {
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // === Helpers =============================================================
 
     private static (
         CleanupService svc,
@@ -46,7 +46,7 @@ public class CleanupServiceTests
         return (svc, subRepo, userRepo, email, subSvc);
     }
 
-    private static User MakePremiumUser(int id, DateTime? lastActiveAt = null, DateTime? expiresAt = null) => new()
+    private static User MakePremiumUser(int id, DateTime? lastActiveAt = null, DateTime? expiresAt = null, DateTime? cancellationScheduledAt = null) => new()
     {
         Id = id,
         Email = $"user{id}@test.com",
@@ -55,10 +55,11 @@ public class CleanupServiceTests
         Subscription = "premium",
         SubscriptionSource = "stripe",
         SubscriptionExpiresAt = expiresAt ?? DateTime.UtcNow.AddDays(20),
-        LastActiveAt = lastActiveAt
+        LastActiveAt = lastActiveAt,
+        CancellationScheduledAt = cancellationScheduledAt
     };
 
-    // ─── Billing reminder ─────────────────────────────────────────────────────
+    // === Billing reminder =====================================================
 
     [Fact]
     public async Task SendBillingReminders_UserBillingInTwoDays_SendsEmail()
@@ -78,6 +79,19 @@ public class CleanupServiceTests
     }
 
     [Fact]
+    public async Task SendBillingReminders_CancellationScheduled_SendsNoEmail()
+    {
+        var (svc, subRepo, _, email, _) = Build();
+        var user = MakePremiumUser(1, expiresAt: DateTime.UtcNow.AddDays(2), cancellationScheduledAt: DateTime.UtcNow.AddDays(2));
+        subRepo.Setup(r => r.GetUsersWithBillingInDays(2)).ReturnsAsync([user]);
+
+        await svc.SendBillingReminders(subRepo.Object, email.Object);
+
+        email.Verify(e => e.SendBillingReminderEmail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<decimal>()), Times.Never);
+        subRepo.Verify(r => r.SetBillingReminderSent(It.IsAny<int>(), It.IsAny<DateTime>()), Times.Never);
+    }
+
+    [Fact]
     public async Task SendBillingReminders_NoUsersUpcoming_SendsNoEmails()
     {
         var (svc, subRepo, _, email, _) = Build();
@@ -88,7 +102,7 @@ public class CleanupServiceTests
         email.Verify(e => e.SendBillingReminderEmail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<decimal>()), Times.Never);
     }
 
-    // ─── Inactivity notices ───────────────────────────────────────────────────
+    // === Inactivity notices ===================================================
 
     [Fact]
     public async Task SendInactivityNotices_UserInactiveOver45Days_SendsEmailAndMarks()
@@ -117,7 +131,7 @@ public class CleanupServiceTests
         email.Verify(e => e.SendInactivityReminderEmail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>()), Times.Never);
     }
 
-    // ─── Sponsor with inactive collaborators ─────────────────────────────────
+    // === Sponsor with inactive collaborators =================================
 
     [Fact]
     public async Task NotifySponsorsOfInactiveCollaborators_HasInactive_SendsCombinedEmail()
@@ -148,7 +162,7 @@ public class CleanupServiceTests
         email.Verify(e => e.SendSponsorInactiveCollaboratorsEmail(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IEnumerable<string>>(), It.IsAny<DateTime>()), Times.Never);
     }
 
-    // ─── Collaborator upgraded themselves ────────────────────────────────────
+    // === Collaborator upgraded themselves ====================================
 
     [Fact]
     public async Task NotifySponsorsOfUpgradedCollaborators_CollaboratorUpgraded_EmailsSponsor()

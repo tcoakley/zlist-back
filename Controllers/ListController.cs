@@ -113,7 +113,7 @@ namespace zListBack.Controllers
         [HttpPut("SetListRunItemCompletion/{runItemId}")]
         public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, [FromBody] ToggleRunItemRequest request)
         {
-            _ = _userRepo.UpdateLastActiveAt(_userId);
+            await _userRepo.UpdateLastActiveAt(_userId);
             var result = await _listService.SetListRunItemCompletion(runItemId, request.IsComplete, _userId);
             if (result.Success)
             {
@@ -134,7 +134,7 @@ namespace zListBack.Controllers
         [HttpPost("CreateListRun/{listId}")]
         public async Task<Result<ListRunModel>> CreateListRun(int listId)
         {
-            _ = _userRepo.UpdateLastActiveAt(_userId);
+            await _userRepo.UpdateLastActiveAt(_userId);
             return await _listService.CreateListRun(listId);
         }
 
@@ -144,7 +144,7 @@ namespace zListBack.Controllers
             return await _listService.GetListRunHistory(listId);
         }
 
-        // ─── Shared list endpoints ───────────────────────────────────────────────────
+        // === Shared list endpoints ===================================================
 
         [HttpGet("{listId}/members")]
         public async Task<Result<List<ListMemberModel>>> GetListMembers(int listId)

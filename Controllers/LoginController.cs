@@ -35,11 +35,11 @@ namespace zListBack.Controllers
             var result = await _userRepository.CheckLoginAsync(request.Email, request.Password);
             if (!result.Success)
             {
-                return Unauthorized(result.Message);
+                return BadRequest(result.Message);
             }
 
             var user = result.Model!;
-            _ = _userRepository.UpdateLastActiveAt(user.Id);
+            await _userRepository.UpdateLastActiveAt(user.Id);
             var accessToken = JwtTokenGenerator.GenerateToken(user, _configuration);
 
 

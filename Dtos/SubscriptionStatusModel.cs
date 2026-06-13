@@ -6,6 +6,7 @@ namespace zListBack.Dtos
         public string SubscriptionSource { get; set; } = "free";
         public DateTime? ExpiresAt { get; set; }
         public DateTime? GracePeriodUntil { get; set; }
+        public DateTime? CancellationScheduledAt { get; set; }
         public bool IsPremium { get; set; }
         public bool IsSponsored { get; set; }
         public string? SponsorName { get; set; }

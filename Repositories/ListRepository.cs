@@ -909,7 +909,7 @@ namespace zListBack.Repositories
             }
         }
 
-        // ─── Shared list methods ────────────────────────────────────────────────────
+        // === Shared list methods ====================================================
 
         public async Task<Result<System.Collections.Generic.List<ListPendingInviteModel>>> GetPendingInvitations(int listId)
         {

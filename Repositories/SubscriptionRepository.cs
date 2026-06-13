@@ -132,6 +132,14 @@ namespace zListBack.Repositories
             await _connection.ExecuteAsync(sql, new { UserId = userId, GraceUntil = graceUntil });
         }
 
+        public async Task SetCancellationScheduled(int userId, DateTime? date)
+        {
+            const string sql = @"
+                UPDATE Users SET CancellationScheduledAt = @Date, UpdatedAt = GETUTCDATE()
+                WHERE Id = @UserId;";
+            await _connection.ExecuteAsync(sql, new { UserId = userId, Date = date });
+        }
+
         // Returns the count of non-premium (free) collaborators currently on this sponsor's shared lists.
         // Used to determine if the sponsor's included free slot is occupied when a sponsorship ends.
         public async Task<int> GetFreeCollaboratorCount(int sponsorUserId)
@@ -203,7 +211,7 @@ namespace zListBack.Repositories
             return count > 2;
         }
 
-        // ─── Daily cleanup queries ────────────────────────────────────────────────
+        // === Daily cleanup queries ================================================
 
         public async Task<IEnumerable<User>> GetInactivePremiumUsers(int inactiveDays)
         {
@@ -214,6 +222,7 @@ namespace zListBack.Repositories
                 WHERE Subscription = 'premium'
                   AND SubscriptionSource = 'stripe'
                   AND InactivityNoticeSentAt IS NULL
+                  AND CreatedAt < DATEADD(DAY, -@InactiveDays, GETUTCDATE())
                   AND (LastActiveAt IS NULL OR LastActiveAt < DATEADD(DAY, -@InactiveDays, GETUTCDATE()));";
             return await _connection.QueryAsync<User>(sql, new { InactiveDays = inactiveDays });
         }
@@ -273,11 +282,13 @@ namespace zListBack.Repositories
         public async Task<IEnumerable<User>> GetUsersWithBillingInDays(int days)
         {
             const string sql = @"
-                SELECT Id, Email, FirstName, LastName, SubscriptionExpiresAt, BillingReminderSentAt
+                SELECT Id, Email, FirstName, LastName, SubscriptionExpiresAt, BillingReminderSentAt,
+                       CancellationScheduledAt
                 FROM Users
                 WHERE Subscription = 'premium'
                   AND SubscriptionSource = 'stripe'
                   AND SubscriptionExpiresAt IS NOT NULL
+                  AND CancellationScheduledAt IS NULL
                   AND CAST(SubscriptionExpiresAt AS DATE) = CAST(DATEADD(DAY, @Days, GETUTCDATE()) AS DATE)
                   AND (BillingReminderSentAt IS NULL
                        OR CAST(BillingReminderSentAt AS DATE) < CAST(DATEADD(DAY, -25, GETUTCDATE()) AS DATE));";

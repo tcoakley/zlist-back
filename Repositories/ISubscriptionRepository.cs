@@ -17,6 +17,7 @@ namespace zListBack.Repositories
         Task SetUserSubscription(int userId, string subscription, string source, DateTime? expiresAt);
         Task SetStripeIds(int userId, string stripeCustomerId, string stripeSubscriptionId);
         Task SetGracePeriod(int userId, DateTime? graceUntil);
+        Task SetCancellationScheduled(int userId, DateTime? date);
         Task<int> GetFreeCollaboratorCount(int sponsorUserId);
         Task RevokeSharedListAccess(int sponsorUserId, int collaboratorUserId);
         Task RevokeAllSharedListAccess(int sponsorUserId);

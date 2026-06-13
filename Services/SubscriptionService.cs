@@ -18,17 +18,20 @@ namespace zListBack.Services
         private readonly ISubscriptionRepository _subscriptionRepo;
         private readonly IUserRepository _userRepo;
         private readonly IUserPaymentHistoryRepository _paymentHistoryRepo;
+        private readonly ListRepository _listRepo;
         private readonly StripeSettings _stripe;
 
         public SubscriptionService(
             ISubscriptionRepository subscriptionRepo,
             IUserRepository userRepo,
             IUserPaymentHistoryRepository paymentHistoryRepo,
+            ListRepository listRepo,
             IOptions<StripeSettings> stripeOptions)
         {
             _subscriptionRepo = subscriptionRepo;
             _userRepo = userRepo;
             _paymentHistoryRepo = paymentHistoryRepo;
+            _listRepo = listRepo;
             _stripe = stripeOptions.Value;
         }
 
@@ -122,7 +125,7 @@ namespace zListBack.Services
         public Task<IEnumerable<UserPaymentHistory>> GetPaymentHistory(int userId) =>
             _paymentHistoryRepo.GetByUserIdAsync(userId);
 
-        // ─── Upgrade ─────────────────────────────────────────────────────────────────
+        // === Upgrade =================================================================
         // Creates a Stripe customer (if needed) and an incomplete subscription.
         // Returns the PaymentIntent clientSecret so the frontend can confirm payment
         // via the Stripe Payment Element.
@@ -159,7 +162,7 @@ namespace zListBack.Services
             }
         }
 
-        // ─── Cancel ──────────────────────────────────────────────────────────────────
+        // === Cancel ==================================================================
         // Sets cancel_at_period_end = true in Stripe. The user keeps access until the
         // current period ends. The webhook customer.subscription.deleted fires at that
         // point and calls HandleSponsorCancellation / FinalizeSponsorCancellation.
@@ -173,8 +176,11 @@ namespace zListBack.Services
                     return Result<bool>.Fail("User not found.");
 
                 var subscriptionId = userResult.Model.StripeSubscriptionId;
-                if (!string.IsNullOrEmpty(subscriptionId))
-                    await CancelStripeSubscription(subscriptionId);
+                if (string.IsNullOrEmpty(subscriptionId))
+                    return Result<bool>.Fail("No active Stripe subscription found.");
+
+                await CancelStripeSubscription(subscriptionId);
+                await _subscriptionRepo.SetCancellationScheduled(userId, userResult.Model.SubscriptionExpiresAt);
 
                 return Result<bool>.Ok(true);
             }
@@ -188,7 +194,7 @@ namespace zListBack.Services
             }
         }
 
-        // ─── Admin / Gift ─────────────────────────────────────────────────────────────
+        // === Admin / Gift =============================================================
 
         public async Task<Result<bool>> GrantPremium(string email, string source, DateTime? expiresAt)
         {
@@ -197,6 +203,7 @@ namespace zListBack.Services
                 var user = await _subscriptionRepo.GetUserByEmail(email);
                 if (user == null) return Result<bool>.Fail("User not found.");
                 await _subscriptionRepo.SetUserSubscription(user.Id, "premium", source, expiresAt);
+                await _listRepo.RestoreArchivedLists(user.Id);
                 return Result<bool>.Ok(true);
             }
             catch (Exception ex)
@@ -221,7 +228,7 @@ namespace zListBack.Services
             }
         }
 
-        // ─── Stripe private methods ───────────────────────────────────────────────────
+        // === Stripe private methods ===================================================
 
         private async Task<string> CreateStripeCustomer(int userId, string email)
         {

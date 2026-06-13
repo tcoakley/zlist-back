@@ -16,6 +16,7 @@ namespace zListBack.Controllers
         private readonly AppSubscriptionService _subscriptionService;
         private readonly ISubscriptionRepository _subscriptionRepo;
         private readonly IUserPaymentHistoryRepository _paymentHistoryRepo;
+        private readonly ListRepository _listRepo;
         private readonly EmailService _emailService;
         private readonly string _webhookSecret;
 
@@ -23,12 +24,14 @@ namespace zListBack.Controllers
             AppSubscriptionService subscriptionService,
             ISubscriptionRepository subscriptionRepo,
             IUserPaymentHistoryRepository paymentHistoryRepo,
+            ListRepository listRepo,
             EmailService emailService,
             IOptions<StripeSettings> stripeOptions)
         {
             _subscriptionService = subscriptionService;
             _subscriptionRepo = subscriptionRepo;
             _paymentHistoryRepo = paymentHistoryRepo;
+            _listRepo = listRepo;
             _emailService = emailService;
             _webhookSecret = stripeOptions.Value.WebhookSecret;
         }
@@ -70,7 +73,7 @@ namespace zListBack.Controllers
             return Ok();
         }
 
-        // ─── Event handlers ───────────────────────────────────────────────────────────
+        // === Event handlers ===========================================================
 
         private async Task HandlePaymentSucceeded(Event stripeEvent)
         {
@@ -83,15 +86,19 @@ namespace zListBack.Controllers
             // Determine period end from the first line item
             var periodEnd = invoice.Lines?.Data?.FirstOrDefault()?.Period?.End;
             if (periodEnd.HasValue)
+            {
                 await _subscriptionRepo.SetUserSubscription(user.Id, "premium", "stripe", periodEnd.Value);
+                await _listRepo.RestoreArchivedLists(user.Id);
+            }
 
-            // Clear any grace period — payment succeeded
+            // Clear grace period and any pending cancellation — payment succeeded means they renewed
             await _subscriptionRepo.SetGracePeriod(user.Id, null!);
+            await _subscriptionRepo.SetCancellationScheduled(user.Id, null);
 
             // Record payment in history (idempotent via unique StripeEventId)
             if (!string.IsNullOrEmpty(stripeEvent.Id))
             {
-                var planType = invoice.Lines?.Data?.FirstOrDefault()?.Pricing?.PriceDetails?.PriceId ?? "unknown";
+                var planType = "premium";
                 var isFirstPayment = await _paymentHistoryRepo.AddAsync(new UserPaymentHistory
                 {
                     UserId = user.Id,
@@ -135,6 +142,7 @@ namespace zListBack.Controllers
             if (user == null) return;
 
             var lastAccessDate = subscription.EndedAt ?? DateTime.UtcNow;
+            await _subscriptionRepo.SetCancellationScheduled(user.Id, null);
             await _subscriptionService.HandleSponsorCancellation(user.Id);
             await _subscriptionService.FinalizeSponsorCancellation(user.Id);
 

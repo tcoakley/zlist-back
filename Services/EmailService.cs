@@ -262,7 +262,8 @@ namespace zListBack.Services
                             <li>Unlimited checklists</li>
                             <li>Create and manage shared lists</li>
                             <li>1 free collaborator included — invite them from your <a href=""{_baseUrl}/account"">Account page</a></li>
-                            <li>Add more collaborators for $1/month each</li>
+                            <li>Unlimited premium collaborators</li>
+                            <li>Add additional collaborators for just $1/month each — they get the full Premium experience</li>
                             <li>7-day grace period on any billing issues</li>
                         </ul>
                         <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>

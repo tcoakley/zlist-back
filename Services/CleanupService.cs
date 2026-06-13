@@ -46,13 +46,15 @@ namespace zListBack.Services
             await NotifySponsorsOfUpgradedCollaborators(subRepo, emailService);
         }
 
-        // ─── Billing reminder (2 days before next billing date) ──────────────────
+        // === Billing reminder (2 days before next billing date) ==================
 
         public async Task SendBillingReminders(ISubscriptionRepository subRepo, EmailService emailService)
         {
             var users = await subRepo.GetUsersWithBillingInDays(BillingReminderDays);
             foreach (var user in users)
             {
+                if (user.CancellationScheduledAt.HasValue) continue;
+
                 var billingDate = user.SubscriptionExpiresAt ?? DateTime.UtcNow.AddDays(BillingReminderDays);
                 var activeSponsoredCount = await subRepo.GetActiveSponsoredCount(user.Id);
                 var paidSeats = Math.Max(0, activeSponsoredCount - 1);
@@ -64,7 +66,7 @@ namespace zListBack.Services
             }
         }
 
-        // ─── Inactivity notice (premium users inactive 45+ days) ─────────────────
+        // === Inactivity notice (premium users inactive 45+ days) =================
 
         public async Task SendInactivityNotices(ISubscriptionRepository subRepo, EmailService emailService)
         {
@@ -78,7 +80,7 @@ namespace zListBack.Services
             }
         }
 
-        // ─── Sponsor with inactive collaborators ─────────────────────────────────
+        // === Sponsor with inactive collaborators =================================
 
         public async Task NotifySponsorsOfInactiveCollaborators(ISubscriptionRepository subRepo, EmailService emailService)
         {
@@ -100,7 +102,7 @@ namespace zListBack.Services
             }
         }
 
-        // ─── Collaborator upgraded themselves ────────────────────────────────────
+        // === Collaborator upgraded themselves ====================================
 
         public async Task NotifySponsorsOfUpgradedCollaborators(ISubscriptionRepository subRepo, EmailService emailService)
         {

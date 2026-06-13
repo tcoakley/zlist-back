@@ -19,6 +19,7 @@ namespace zListBack.Models
         public string? StripeCustomerId { get; set; }
         public string? StripeSubscriptionId { get; set; }
         public DateTime? GracePeriodUntil { get; set; }
+        public DateTime? CancellationScheduledAt { get; set; }
         public bool IsAdmin { get; set; }
         public bool IsHelpEnabled { get; set; } = true;
         public bool SortCompletedToBottom { get; set; } = true;

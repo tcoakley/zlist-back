@@ -11,7 +11,7 @@ namespace zListBack.Tests;
 
 public class SubscriptionServiceTests
 {
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // === Helpers =============================================================
 
     private static (
         SubscriptionService svc,
@@ -45,7 +45,7 @@ public class SubscriptionServiceTests
         GracePeriodUntil = gracePeriodUntil
     };
 
-    // ─── IsPremium ────────────────────────────────────────────────────────────
+    // === IsPremium ============================================================
 
     [Fact]
     public async Task IsPremium_ActivePremium_ReturnsTrue()
@@ -69,7 +69,7 @@ public class SubscriptionServiceTests
         result.Should().BeFalse();
     }
 
-    // ─── CanCreateList ────────────────────────────────────────────────────────
+    // === CanCreateList ========================================================
 
     [Fact]
     public async Task CanCreateList_PremiumUser_ReturnsTrue()
@@ -106,7 +106,7 @@ public class SubscriptionServiceTests
         result.Should().BeFalse();
     }
 
-    // ─── IsFirstCollaboratorSlot ──────────────────────────────────────────────
+    // === IsFirstCollaboratorSlot ==============================================
 
     [Fact]
     public async Task IsFirstCollaboratorSlot_NoExistingCollaborators_ReturnsTrue()
@@ -130,7 +130,7 @@ public class SubscriptionServiceTests
         result.Should().BeFalse();
     }
 
-    // ─── SponsorCollaborator ──────────────────────────────────────────────────
+    // === SponsorCollaborator ==================================================
 
     [Fact]
     public async Task SponsorCollaborator_FirstSlot_AddsWithoutStripeCall()
@@ -160,7 +160,7 @@ public class SubscriptionServiceTests
         subRepo.Verify(r => r.AddSponsoredCollaborator(1, 3), Times.Once);
     }
 
-    // ─── RemoveSponsoredCollaborator ──────────────────────────────────────────
+    // === RemoveSponsoredCollaborator ==========================================
 
     [Fact]
     public async Task RemoveSponsoredCollaborator_StartsSevenDayGrace()
@@ -178,7 +178,7 @@ public class SubscriptionServiceTests
         ), Times.Once);
     }
 
-    // ─── FinalizeCollaboratorDowngrade ────────────────────────────────────────
+    // === FinalizeCollaboratorDowngrade ========================================
 
     [Fact]
     public async Task FinalizeCollaboratorDowngrade_FreeSlotTaken_RevokesListAccess()
@@ -205,7 +205,7 @@ public class SubscriptionServiceTests
         subRepo.Verify(r => r.RevokeSharedListAccess(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
     }
 
-    // ─── HandleSponsorLapse ───────────────────────────────────────────────────
+    // === HandleSponsorLapse ===================================================
 
     [Fact]
     public async Task HandleSponsorLapse_StartsGraceOnSponsorAndAllCollaborators()
@@ -224,7 +224,7 @@ public class SubscriptionServiceTests
         ), Times.Once);
     }
 
-    // ─── FinalizeSponsorCancellation ──────────────────────────────────────────
+    // === FinalizeSponsorCancellation ==========================================
 
     [Fact]
     public async Task FinalizeSponsorCancellation_DeactivatesAllAndRevokesAccess()
@@ -241,7 +241,7 @@ public class SubscriptionServiceTests
         subRepo.Verify(r => r.SetUserSubscription(1, "free", "free", null), Times.Once);
     }
 
-    // ─── Upgrade ─────────────────────────────────────────────────────────────
+    // === Upgrade =============================================================
 
     [Fact]
     public async Task Upgrade_UserNotFound_ReturnsFail()
@@ -257,7 +257,7 @@ public class SubscriptionServiceTests
         result.Message.Should().Be("User not found.");
     }
 
-    // ─── Cancel ──────────────────────────────────────────────────────────────
+    // === Cancel ==============================================================
 
     [Fact]
     public async Task Cancel_PremiumUser_SucceedsAndDefersFinalizeToWebhook()
@@ -289,7 +289,7 @@ public class SubscriptionServiceTests
         result.Message.Should().Be("User not found.");
     }
 
-    // ─── GrantPremium / RevokePremium ─────────────────────────────────────────
+    // === GrantPremium / RevokePremium =========================================
 
     [Fact]
     public async Task GrantPremium_KnownEmail_SetsSubscription()

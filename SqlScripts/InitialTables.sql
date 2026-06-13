@@ -15,9 +15,10 @@ CREATE TABLE Users (
     IsAdmin              BIT           NOT NULL DEFAULT 0,
     IsHelpEnabled BIT NOT NULL DEFAULT 1,
     SortCompletedToBottom BIT NOT NULL DEFAULT 1,
-    LastActiveAt          DATETIME2     NULL,
-    InactivityNoticeSentAt DATETIME2    NULL,
-    BillingReminderSentAt  DATETIME2    NULL,
+    LastActiveAt             DATETIME2     NULL,
+    InactivityNoticeSentAt   DATETIME2     NULL,
+    BillingReminderSentAt    DATETIME2     NULL,
+    CancellationScheduledAt  DATETIME2     NULL,
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     UpdatedAt DATETIME2 NULL
 );
@@ -32,7 +33,7 @@ CREATE TABLE UserPaymentHistory (
     StripeEventId VARCHAR(100) NOT NULL,
     AmountPaid DECIMAL(10,2) NOT NULL,
     Currency VARCHAR(10) NOT NULL DEFAULT 'usd',
-    PlanType VARCHAR(20) NOT NULL,
+    PlanType VARCHAR(100) NOT NULL,
     PaidAt DATETIME2 NOT NULL,
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     CONSTRAINT FK_UserPaymentHistory_Users FOREIGN KEY (UserId) REFERENCES Users(Id),

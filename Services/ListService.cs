@@ -139,7 +139,7 @@ namespace zListBack.Services
             return await _listRepository.GetListRunHistory(listId);
         }
 
-        // ─── Shared list methods ────────────────────────────────────────────────────
+        // === Shared list methods ====================================================
 
         public async Task<Result<List<ListMemberModel>>> GetListMembers(int listId, int userId)
         {
