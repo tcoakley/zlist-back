@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using zListBack.Configurations;
@@ -23,12 +24,14 @@ public class SubscriptionServiceTests
         var subRepo = new Mock<ISubscriptionRepository>();
         var userRepo = new Mock<IUserRepository>();
         var paymentRepo = new Mock<IUserPaymentHistoryRepository>();
+        var listRepo = new Mock<ListRepository>(Mock.Of<System.Data.IDbConnection>(), NullLogger<ListRepository>.Instance);
+        listRepo.Setup(r => r.RestoreArchivedLists(It.IsAny<int>())).Returns(Task.CompletedTask);
         var stripeOptions = Options.Create(new StripeSettings
         {
             PremiumPriceId = "price_test_premium",
             CollaboratorPriceId = "price_test_collab"
         });
-        var svc = new SubscriptionService(subRepo.Object, userRepo.Object, paymentRepo.Object, stripeOptions);
+        var svc = new SubscriptionService(subRepo.Object, userRepo.Object, paymentRepo.Object, listRepo.Object, null!, stripeOptions, NullLogger<SubscriptionService>.Instance);
         return (svc, subRepo, userRepo, paymentRepo);
     }
 
@@ -109,10 +112,10 @@ public class SubscriptionServiceTests
     // === IsFirstCollaboratorSlot ==============================================
 
     [Fact]
-    public async Task IsFirstCollaboratorSlot_NoExistingCollaborators_ReturnsTrue()
+    public async Task IsFirstCollaboratorSlot_NoFreeSlotTaken_ReturnsTrue()
     {
         var (svc, subRepo, _, _) = Build();
-        subRepo.Setup(r => r.GetActiveSponsoredCount(1)).ReturnsAsync(0);
+        subRepo.Setup(r => r.HasActiveFreeSeatCollaborator(1)).ReturnsAsync(false);
 
         var result = await svc.IsFirstCollaboratorSlot(1);
 
@@ -120,14 +123,85 @@ public class SubscriptionServiceTests
     }
 
     [Fact]
-    public async Task IsFirstCollaboratorSlot_HasExistingCollaborator_ReturnsFalse()
+    public async Task IsFirstCollaboratorSlot_FreeSlotAlreadyTaken_ReturnsFalse()
     {
         var (svc, subRepo, _, _) = Build();
-        subRepo.Setup(r => r.GetActiveSponsoredCount(1)).ReturnsAsync(1);
+        subRepo.Setup(r => r.HasActiveFreeSeatCollaborator(1)).ReturnsAsync(true);
 
         var result = await svc.IsFirstCollaboratorSlot(1);
 
         result.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task IsFirstCollaboratorSlot_HasPaidSeatButNoFreeSlot_ReturnsTrue()
+    {
+        // Regression: before IsFreeSeat column, any active seat blocked the free slot.
+        // Now we check only IsFreeSeat=1 records, so paid-only sponsors can still add a free slot.
+        var (svc, subRepo, _, _) = Build();
+        subRepo.Setup(r => r.HasActiveFreeSeatCollaborator(1)).ReturnsAsync(false); // no free seat despite paid seats existing
+
+        var result = await svc.IsFirstCollaboratorSlot(1);
+
+        result.Should().BeTrue();
+    }
+
+    // === AddFreeCollaboratorByEmail ===========================================
+
+    [Fact]
+    public async Task AddFreeCollaboratorByEmail_FreeSlotTaken_ReturnsFail()
+    {
+        var (svc, subRepo, _, _) = Build();
+        subRepo.Setup(r => r.HasActiveFreeSeatCollaborator(1)).ReturnsAsync(true);
+
+        var result = await svc.AddFreeCollaboratorByEmail(1, "target@test.com");
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("free collaborator slot is already taken");
+    }
+
+    [Fact]
+    public async Task AddFreeCollaboratorByEmail_AlreadySponsored_ReturnsFail()
+    {
+        var (svc, subRepo, userRepo, _) = Build();
+        subRepo.Setup(r => r.HasActiveFreeSeatCollaborator(1)).ReturnsAsync(false);
+        userRepo.Setup(r => r.GetUserAsync(1)).ReturnsAsync(Result<User>.Ok(MakeUser(1, "premium", "stripe")));
+        subRepo.Setup(r => r.GetUserByEmail("target@test.com")).ReturnsAsync(MakeUser(2));
+        subRepo.Setup(r => r.HasActiveSponsoredCollaborator(1, 2)).ReturnsAsync(true);
+
+        var result = await svc.AddFreeCollaboratorByEmail(1, "target@test.com");
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("already one of your sponsored collaborators");
+    }
+
+    // === AddPaidCollaboratorByEmail ===========================================
+
+    [Fact]
+    public async Task AddPaidCollaboratorByEmail_NonStripePremium_ReturnsFail()
+    {
+        // Sponsored and admin-granted users must be blocked from adding paid seats.
+        var (svc, subRepo, userRepo, _) = Build();
+        userRepo.Setup(r => r.GetUserAsync(1)).ReturnsAsync(Result<User>.Ok(MakeUser(1, "free", "sponsored")));
+
+        var result = await svc.AddPaidCollaboratorByEmail(1, "target@test.com");
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("Paid collaborator seats require");
+    }
+
+    [Fact]
+    public async Task AddPaidCollaboratorByEmail_AlreadySponsored_ReturnsFail()
+    {
+        var (svc, subRepo, userRepo, _) = Build();
+        userRepo.Setup(r => r.GetUserAsync(1)).ReturnsAsync(Result<User>.Ok(MakeUser(1, "premium", "stripe")));
+        subRepo.Setup(r => r.GetUserByEmail("target@test.com")).ReturnsAsync(MakeUser(2));
+        subRepo.Setup(r => r.HasActiveSponsoredCollaborator(1, 2)).ReturnsAsync(true);
+
+        var result = await svc.AddPaidCollaboratorByEmail(1, "target@test.com");
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("already one of your sponsored collaborators");
     }
 
     // === SponsorCollaborator ==================================================
@@ -136,29 +210,15 @@ public class SubscriptionServiceTests
     public async Task SponsorCollaborator_FirstSlot_AddsWithoutStripeCall()
     {
         var (svc, subRepo, _, _) = Build();
-        subRepo.Setup(r => r.GetActiveSponsoredCount(1)).ReturnsAsync(0);
-        subRepo.Setup(r => r.AddSponsoredCollaborator(1, 2)).Returns(Task.CompletedTask);
+        subRepo.Setup(r => r.HasActiveFreeSeatCollaborator(1)).ReturnsAsync(false);
+        subRepo.Setup(r => r.AddSponsoredCollaborator(1, 2, true)).Returns(Task.CompletedTask);
 
         var result = await svc.SponsorCollaborator(1, 2);
 
         result.Success.Should().BeTrue();
-        subRepo.Verify(r => r.AddSponsoredCollaborator(1, 2), Times.Once);
+        subRepo.Verify(r => r.AddSponsoredCollaborator(1, 2, true), Times.Once);
     }
 
-    [Fact]
-    public async Task SponsorCollaborator_SecondSlot_AddsAndCallsStripeStub()
-    {
-        var (svc, subRepo, userRepo, _) = Build();
-        subRepo.Setup(r => r.GetActiveSponsoredCount(1)).ReturnsAsync(1);
-        subRepo.Setup(r => r.AddSponsoredCollaborator(1, 3)).Returns(Task.CompletedTask);
-        // Stripe seat call fetches the sponsor — no StripeSubscriptionId means early return
-        userRepo.Setup(r => r.GetUserAsync(1)).ReturnsAsync(Result<User>.Ok(MakeUser(1, "premium")));
-
-        var result = await svc.SponsorCollaborator(1, 3);
-
-        result.Success.Should().BeTrue();
-        subRepo.Verify(r => r.AddSponsoredCollaborator(1, 3), Times.Once);
-    }
 
     // === RemoveSponsoredCollaborator ==========================================
 
@@ -260,21 +320,20 @@ public class SubscriptionServiceTests
     // === Cancel ==============================================================
 
     [Fact]
-    public async Task Cancel_PremiumUser_SucceedsAndDefersFinalizeToWebhook()
+    public async Task Cancel_UserHasNoStripeSubscription_ReturnsFail()
     {
-        // Cancel sets cancel_at_period_end=true in Stripe (real API call — skipped
-        // in unit tests when StripeSubscriptionId is null). Actual downgrade fires
-        // from the customer.subscription.deleted webhook, not here.
+        // Admin-granted or gift premium users have no StripeSubscriptionId;
+        // Cancel should return Fail — there is nothing to cancel in Stripe.
         var (svc, subRepo, userRepo, _) = Build();
         var user = MakeUser(1, "premium");
-        user.StripeSubscriptionId = null; // no live sub — Stripe UpdateAsync is skipped
+        user.StripeSubscriptionId = null;
         userRepo.Setup(r => r.GetUserAsync(1)).ReturnsAsync(Result<User>.Ok(user));
 
         var result = await svc.Cancel(1);
 
-        result.Success.Should().BeTrue();
-        subRepo.Verify(r => r.SetUserSubscription(It.IsAny<int>(), "free", "free", null), Times.Never);
-        subRepo.Verify(r => r.RevokeAllSharedListAccess(It.IsAny<int>()), Times.Never);
+        result.Success.Should().BeFalse();
+        result.Message.Should().Be("No active Stripe subscription found.");
+        subRepo.Verify(r => r.SetUserSubscription(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime?>()), Times.Never);
     }
 
     [Fact]
@@ -287,6 +346,35 @@ public class SubscriptionServiceTests
 
         result.Success.Should().BeFalse();
         result.Message.Should().Be("User not found.");
+    }
+
+    // === ApplyPendingSponsorshipOnSignup =========================================
+
+    [Fact]
+    public async Task ApplyPendingSponsorshipOnSignup_WithPendingInvite_AddsAsFreeSeat()
+    {
+        var (svc, subRepo, _, _) = Build();
+        subRepo.Setup(r => r.GetPendingSponsorInvitationByEmail("new@test.com"))
+               .ReturnsAsync(((int SponsorUserId, string Token)?)(42, "tok123"));
+        subRepo.Setup(r => r.AddSponsoredCollaborator(42, 99, true)).Returns(Task.CompletedTask);
+        subRepo.Setup(r => r.DeletePendingSponsorInvitationByEmail("new@test.com")).Returns(Task.CompletedTask);
+
+        await svc.ApplyPendingSponsorshipOnSignup(99, "new@test.com");
+
+        subRepo.Verify(r => r.AddSponsoredCollaborator(42, 99, true), Times.Once);
+        subRepo.Verify(r => r.DeletePendingSponsorInvitationByEmail("new@test.com"), Times.Once);
+    }
+
+    [Fact]
+    public async Task ApplyPendingSponsorshipOnSignup_NoPendingInvite_DoesNothing()
+    {
+        var (svc, subRepo, _, _) = Build();
+        subRepo.Setup(r => r.GetPendingSponsorInvitationByEmail("new@test.com"))
+               .ReturnsAsync(((int SponsorUserId, string Token)?)null);
+
+        await svc.ApplyPendingSponsorshipOnSignup(99, "new@test.com");
+
+        subRepo.Verify(r => r.AddSponsoredCollaborator(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()), Times.Never);
     }
 
     // === GrantPremium / RevokePremium =========================================

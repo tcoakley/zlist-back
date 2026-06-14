@@ -8,8 +8,9 @@ namespace zListBack.Repositories
         Task<bool> IsPremium(int userId);
         Task<int> GetOwnedListCount(int userId);
         Task<int> GetActiveSponsoredCount(int sponsorUserId);
+        Task<bool> HasActiveFreeSeatCollaborator(int sponsorUserId);
         Task<bool> HasActiveSponsoredCollaborator(int sponsorUserId, int sponsoredUserId);
-        Task AddSponsoredCollaborator(int sponsorUserId, int sponsoredUserId);
+        Task AddSponsoredCollaborator(int sponsorUserId, int sponsoredUserId, bool isFreeSeat);
         Task StartSponsorshipGrace(int sponsorUserId, int sponsoredUserId, DateTime graceUntil);
         Task DeactivateSponsoredCollaborator(int sponsorUserId, int sponsoredUserId);
         Task StartAllSponsorshipsGrace(int sponsorUserId, DateTime graceUntil);
@@ -26,6 +27,13 @@ namespace zListBack.Repositories
         Task<bool> NeedsDowngradeSelection(int userId);
         Task<User?> GetUserByEmail(string email);
         Task<User?> GetUserByStripeCustomerId(string stripeCustomerId);
+
+        // Pending sponsor invitations
+        Task CreatePendingSponsorInvitation(int sponsorUserId, string email, string token, DateTime expiresAt);
+        Task<IEnumerable<PendingSponsorInvitationModel>> GetPendingSponsorInvitations(int sponsorUserId);
+        Task<(int SponsorUserId, string Token)?> GetPendingSponsorInvitationByEmail(string email);
+        Task DeletePendingSponsorInvitation(int sponsorUserId, string email);
+        Task DeletePendingSponsorInvitationByEmail(string email);
 
         // Daily cleanup queries
         Task<IEnumerable<User>> GetInactivePremiumUsers(int inactiveDays);

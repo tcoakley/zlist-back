@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Net;
 using System.Net.Mail;
+using Microsoft.Extensions.Logging;
 using zListBack.Models;
 using zListBack.Repositories;
 
@@ -15,8 +16,9 @@ namespace zListBack.Services
         private readonly string _senderPassword;
         private readonly string _baseUrl;
         private readonly IUserRepository _userRepository;
+        private readonly ILogger<EmailService> _logger;
 
-        public EmailService(IConfiguration configuration, IUserRepository userRepository)
+        public EmailService(IConfiguration configuration, IUserRepository userRepository, ILogger<EmailService> logger)
         {
             var emailSettings = configuration.GetSection("EmailSettings");
             _smtpServer = emailSettings["SmtpServer"]!;
@@ -25,6 +27,7 @@ namespace zListBack.Services
             _senderPassword = Environment.GetEnvironmentVariable("Email_SenderPassword")!;
             _baseUrl = configuration["BaseUrl"] ?? "https://zchecklist.com";
             _userRepository = userRepository;
+            _logger = logger;
         }
 
         public virtual async Task<Result<bool>> SendWelcomeEmail(string recipientEmail, string firstName)
@@ -71,6 +74,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SendWelcomeEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -102,6 +106,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SendInvitationEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -131,6 +136,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SendPremiumRequiredInvitationEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -198,6 +204,42 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SendCollaboratorAddedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public virtual async Task<Result<bool>> SendSponsorInvitationEmail(
+            string recipientEmail, string sponsorName)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var signupUrl = $"{_baseUrl}/signup?inviteEmail={Uri.EscapeDataString(recipientEmail)}";
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = $"{sponsorName} invited you to zChecklist — premium access included",
+                    Body = $@"
+                        <p>Hi there,</p>
+                        <p><strong>{sponsorName}</strong> has invited you to join zChecklist and is covering your Premium membership.</p>
+                        <p>Create your free account to get started — no payment needed. Your premium access will be applied automatically once you sign up.</p>
+                        <p><a href=""{signupUrl}"" style=""display:inline-block;padding:10px 20px;background:#228B22;color:white;text-decoration:none;border-radius:4px;"">Create Account</a></p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendSponsorInvitationEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -239,6 +281,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SendCollaboratorRemovedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -274,7 +317,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendSubscriptionActivatedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendPaymentFailedEmail(string recipientEmail, string firstName, DateTime lastAccessDate)
@@ -304,7 +351,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendPaymentFailedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendSubscriptionCancelledEmail(string recipientEmail, string firstName, DateTime lastAccessDate)
@@ -334,7 +385,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendSubscriptionCancelledEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendBillingReminderEmail(string recipientEmail, string firstName, DateTime billingDate, decimal amount)
@@ -362,7 +417,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendBillingReminderEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendInactivityReminderEmail(string recipientEmail, string firstName, DateTime nextBillingDate)
@@ -392,7 +451,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendInactivityReminderEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendSponsorInactiveCollaboratorsEmail(
@@ -427,7 +490,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendSponsorInactiveCollaboratorsEmail failed. SponsorEmail={SponsorEmail}", sponsorEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendCollaboratorUpgradedEmail(
@@ -458,7 +525,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendCollaboratorUpgradedEmail failed. SponsorEmail={SponsorEmail}", sponsorEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendAdminGrantedEmail(
@@ -496,7 +567,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendAdminGrantedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendAdminRevokedEmail(string recipientEmail, string firstName)
@@ -525,7 +600,11 @@ namespace zListBack.Services
                 await client.SendMailAsync(mailMessage);
                 return Result<bool>.Ok(true);
             }
-            catch (Exception ex) { return Result<bool>.Fail(ex.Message); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendAdminRevokedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
         }
 
         public virtual async Task<Result<bool>> SendContactEmail(int userId, string userEmail, string firstName, string lastName, string contactType, string message)
@@ -555,6 +634,42 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SendContactEmail failed. UserEmail={UserEmail}, UserId={UserId}", userEmail, userId);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public virtual async Task<Result<bool>> SendPaidSeatAccountCreatedEmail(
+            string recipientEmail, string sponsorName, string tempPassword)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = $"{sponsorName} set up a Premium zChecklist account for you",
+                    Body = $@"
+                        <p>Hi there,</p>
+                        <p><strong>{sponsorName}</strong> has created a Premium zChecklist account for you and is covering your monthly access.</p>
+                        <p>Your account is ready. Use the temporary password below to log in, then update it from your Profile.</p>
+                        <p style=""font-size:1.1em;"">Email: <strong>{recipientEmail}</strong><br/>
+                        Temporary password: <strong><code>{tempPassword}</code></strong></p>
+                        <p><a href=""{_baseUrl}/login"" style=""display:inline-block;padding:10px 20px;background:#228B22;color:white;text-decoration:none;border-radius:4px;"">Log in to zChecklist</a></p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendPaidSeatAccountCreatedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -601,6 +716,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SendForgotPasswordEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
                 return Result<string>.Fail(ex.Message);
             }
         }

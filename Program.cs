@@ -1,12 +1,19 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using NLog;
+using NLog.Web;
 using System.Text;
 using zListBack.Extensions;
 using zListBack.Hubs;
 using zListBack.Services;
 using zListBack.Utils;
 
+NLog.LogManager.Setup().LoadConfigurationFromFile("nlog.config");
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Host.UseNLog();
 
 // Required for Stripe webhook signature verification — must read raw body
 builder.Services.Configure<RouteOptions>(options => { });

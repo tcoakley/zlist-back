@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Microsoft.Extensions.Logging;
 using zListBack.Models;
 
 namespace zListBack.Repositories
@@ -7,10 +8,12 @@ namespace zListBack.Repositories
     public class UserPaymentHistoryRepository : IUserPaymentHistoryRepository
     {
         private readonly IDbConnection _connection;
+        private readonly ILogger<UserPaymentHistoryRepository> _logger;
 
-        public UserPaymentHistoryRepository(IDbConnection connection)
+        public UserPaymentHistoryRepository(IDbConnection connection, ILogger<UserPaymentHistoryRepository> logger)
         {
             _connection = connection;
+            _logger = logger;
         }
 
         public async Task<Result<UserPaymentHistory>> AddAsync(UserPaymentHistory payment)
@@ -44,6 +47,7 @@ namespace zListBack.Repositories
                 if (ex.Message.Contains("UQ_UserPaymentHistory_StripeEventId", StringComparison.OrdinalIgnoreCase))
                     return Result<UserPaymentHistory>.Fail("Duplicate Stripe event — already recorded.");
 
+                _logger.LogError(ex, "AddAsync (payment history) failed. UserId={UserId}, StripeEventId={StripeEventId}", payment.UserId, payment.StripeEventId);
                 return Result<UserPaymentHistory>.Fail(ex.Message);
             }
         }

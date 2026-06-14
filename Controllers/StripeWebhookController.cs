@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Stripe;
 using zListBack.Configurations;
@@ -19,6 +20,7 @@ namespace zListBack.Controllers
         private readonly ListRepository _listRepo;
         private readonly EmailService _emailService;
         private readonly string _webhookSecret;
+        private readonly ILogger<StripeWebhookController> _logger;
 
         public StripeWebhookController(
             AppSubscriptionService subscriptionService,
@@ -26,7 +28,8 @@ namespace zListBack.Controllers
             IUserPaymentHistoryRepository paymentHistoryRepo,
             ListRepository listRepo,
             EmailService emailService,
-            IOptions<StripeSettings> stripeOptions)
+            IOptions<StripeSettings> stripeOptions,
+            ILogger<StripeWebhookController> logger)
         {
             _subscriptionService = subscriptionService;
             _subscriptionRepo = subscriptionRepo;
@@ -34,6 +37,7 @@ namespace zListBack.Controllers
             _listRepo = listRepo;
             _emailService = emailService;
             _webhookSecret = stripeOptions.Value.WebhookSecret;
+            _logger = logger;
         }
 
         [HttpPost]
@@ -50,8 +54,9 @@ namespace zListBack.Controllers
                     _webhookSecret
                 );
             }
-            catch (StripeException)
+            catch (StripeException ex)
             {
+                _logger.LogWarning(ex, "Stripe webhook signature validation failed.");
                 return BadRequest("Invalid Stripe signature.");
             }
 

@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Microsoft.Extensions.Logging;
 using zListBack.Models;
 
 namespace zListBack.Repositories
@@ -7,10 +8,12 @@ namespace zListBack.Repositories
     public class AppVersionRepository
     {
         private readonly IDbConnection _connection;
+        private readonly ILogger<AppVersionRepository> _logger;
 
-        public AppVersionRepository(IDbConnection connection)
+        public AppVersionRepository(IDbConnection connection, ILogger<AppVersionRepository> logger)
         {
             _connection = connection;
+            _logger = logger;
         }
 
         public async Task<Result<List<AppVersion>>> GetAllVersions()
@@ -27,6 +30,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetAllVersions failed.");
                 return Result<List<AppVersion>>.Fail(ex.Message);
             }
         }

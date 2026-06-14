@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using zListBack.Configurations;
@@ -29,7 +30,7 @@ public class CleanupServiceTests
             CollaboratorPriceId = "price_test_collab"
         });
         var paymentRepo = new Mock<IUserPaymentHistoryRepository>();
-        var subSvc = new SubscriptionService(subRepo.Object, userRepo.Object, paymentRepo.Object, stripeOptions);
+        var subSvc = new SubscriptionService(subRepo.Object, userRepo.Object, paymentRepo.Object, null!, null!, stripeOptions, NullLogger<SubscriptionService>.Instance);
 
         var emailSection = new Mock<Microsoft.Extensions.Configuration.IConfigurationSection>();
         emailSection.Setup(s => s["SmtpServer"]).Returns("localhost");
@@ -37,7 +38,7 @@ public class CleanupServiceTests
         emailSection.Setup(s => s["SenderEmail"]).Returns("test@test.com");
         var config = new Mock<Microsoft.Extensions.Configuration.IConfiguration>();
         config.Setup(c => c.GetSection("EmailSettings")).Returns(emailSection.Object);
-        var email = new Mock<EmailService>(config.Object, userRepo.Object) { CallBase = false };
+        var email = new Mock<EmailService>(config.Object, userRepo.Object, NullLogger<EmailService>.Instance) { CallBase = false };
 
         // CleanupService now takes IServiceScopeFactory; tests call public methods directly
         var scopeFactory = new Mock<IServiceScopeFactory>();

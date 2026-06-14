@@ -146,6 +146,12 @@ namespace zListBack.Controllers
 
         // === Shared list endpoints ===================================================
 
+        [HttpGet("collaborators")]
+        public async Task<Result<List<ListMemberModel>>> GetKnownCollaborators()
+        {
+            return await _listService.GetKnownCollaborators(_userId);
+        }
+
         [HttpGet("{listId}/members")]
         public async Task<Result<List<ListMemberModel>>> GetListMembers(int listId)
         {

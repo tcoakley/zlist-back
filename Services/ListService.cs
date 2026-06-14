@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using zListBack.Models;
 using zListBack.Dtos;
 using zListBack.Repositories;
@@ -10,12 +11,14 @@ namespace zListBack.Services
         private readonly ListRepository _listRepository;
         private readonly SubscriptionService _subscriptionService;
         private readonly ISubscriptionRepository _subscriptionRepository;
+        private readonly ILogger<ListService> _logger;
 
-        public ListService(ListRepository listRepository, SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepository)
+        public ListService(ListRepository listRepository, SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepository, ILogger<ListService> logger)
         {
             _listRepository = listRepository;
             _subscriptionService = subscriptionService;
             _subscriptionRepository = subscriptionRepository;
+            _logger = logger;
         }
 
         public async Task<Result<ListModel>> AddList(ListModel listModel, int userId)
@@ -38,6 +41,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "AddList failed. UserId={UserId}, ListName={ListName}", userId, listModel.ListName);
                 return Result<ListModel>.Fail(ex.Message);
             }
         }
@@ -148,6 +152,11 @@ namespace zListBack.Services
                 return Result<List<ListMemberModel>>.Fail("List not found.");
 
             return await _listRepository.GetListMembers(listId);
+        }
+
+        public async Task<Result<List<ListMemberModel>>> GetKnownCollaborators(int userId)
+        {
+            return await _listRepository.GetKnownCollaborators(userId);
         }
 
         public async Task<Result<List<ListPendingInviteModel>>> GetPendingInvitations(int listId, int userId)

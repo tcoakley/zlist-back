@@ -9,6 +9,7 @@ namespace zListBack.Dtos
         public DateTime CreatedAt { get; set; }
         public bool IsActive { get; set; }
         public DateTime? GraceUntil { get; set; }
+        public bool IsFreeSeat { get; set; }
     }
 
     public class AddCollaboratorRequest

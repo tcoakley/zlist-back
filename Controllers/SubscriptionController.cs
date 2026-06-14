@@ -161,48 +161,63 @@ namespace zListBack.Controllers
             return Result<IEnumerable<SponsoredCollaboratorModel>>.Ok(collaborators);
         }
 
-        /// <summary>
-        /// Adds a collaborator by email. The first collaborator is included in the base
-        /// premium price; each additional one requires a Stripe seat charge.
-        /// TODO: Stripe — when IsFirstCollaboratorSlot is false, AddStripeCollaboratorSeat
-        /// must succeed before the collaborator record is written. The stub in
-        /// SubscriptionService.SponsorCollaborator currently skips the Stripe call.
-        /// </summary>
         [HttpPost("collaborators")]
         public async Task<Result<bool>> AddCollaborator([FromBody] AddCollaboratorRequest request)
         {
             var sponsorId = UserId;
-
             var isPremium = await _subscriptionService.IsPremium(sponsorId);
             if (!isPremium)
                 return Result<bool>.Fail("Premium subscription required to sponsor collaborators.");
 
-            var targetUser = await _subscriptionRepo.GetUserByEmail(request.Email);
-            if (targetUser == null)
-                return Result<bool>.Fail("No account found with that email address.");
+            return await _subscriptionService.AddFreeCollaboratorByEmail(sponsorId, request.Email);
+        }
 
-            if (targetUser.Id == sponsorId)
-                return Result<bool>.Fail("You cannot sponsor yourself.");
+        /// <summary>
+        /// Returns pending signup invitations sent by the current user for the free collaborator slot.
+        /// </summary>
+        [HttpGet("collaborators/pending")]
+        public async Task<Result<IEnumerable<PendingSponsorInvitationModel>>> GetPendingInvitations()
+        {
+            var userId = UserId;
+            var isPremium = await _subscriptionService.IsPremium(userId);
+            if (!isPremium)
+                return Result<IEnumerable<PendingSponsorInvitationModel>>.Fail("Premium subscription required.");
 
-            var alreadySponsored = await _subscriptionService.IsAlreadySponsored(sponsorId, targetUser.Id);
-            if (alreadySponsored)
-                return Result<bool>.Fail("That user is already one of your sponsored collaborators.");
+            var pending = await _subscriptionService.GetPendingSponsorInvitations(userId);
+            return Result<IEnumerable<PendingSponsorInvitationModel>>.Ok(pending);
+        }
 
-            var isFreeSlot = await _subscriptionService.IsFirstCollaboratorSlot(sponsorId);
+        [HttpDelete("collaborators/pending/{email}")]
+        public async Task<Result<bool>> CancelPendingInvitation(string email)
+        {
+            return await _subscriptionService.CancelPendingSponsorInvitation(UserId, Uri.UnescapeDataString(email));
+        }
 
-            var result = await _subscriptionService.SponsorCollaborator(sponsorId, targetUser.Id);
-            if (!result.Success) return result;
+        /// <summary>
+        /// Pre-checks whether an email address can be added as a paid collaborator seat.
+        /// Returns premium status information so the frontend can show appropriate warnings.
+        /// </summary>
+        [HttpGet("collaborators/check")]
+        public async Task<Result<CollaboratorCheckModel>> CheckCollaborator([FromQuery] string email)
+        {
+            var userId = UserId;
+            var isPremium = await _subscriptionService.IsPremium(userId);
+            if (!isPremium)
+                return Result<CollaboratorCheckModel>.Fail("Premium subscription required.");
 
-            var sponsorResult = await _userRepo.GetUserAsync(sponsorId);
-            if (sponsorResult.Success && sponsorResult.Model != null)
-            {
-                var sponsor = sponsorResult.Model;
-                var sponsorName = $"{sponsor.FirstName} {sponsor.LastName}".Trim();
-                var collaboratorFirstName = targetUser.FirstName ?? targetUser.Email;
-                _ = _emailService.SendCollaboratorAddedEmail(targetUser.Email, collaboratorFirstName, sponsorName, isFreeSlot);
-            }
+            var check = await _subscriptionService.CheckCollaboratorPremiumStatus(userId, email);
+            return Result<CollaboratorCheckModel>.Ok(check);
+        }
 
-            return result;
+        [HttpPost("collaborators/paid")]
+        public async Task<Result<bool>> AddPaidCollaborator([FromBody] AddCollaboratorRequest request)
+        {
+            var sponsorId = UserId;
+            var isPremium = await _subscriptionService.IsPremium(sponsorId);
+            if (!isPremium)
+                return Result<bool>.Fail("Premium subscription required.");
+
+            return await _subscriptionService.AddPaidCollaboratorByEmail(sponsorId, request.Email);
         }
 
         /// <summary>

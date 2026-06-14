@@ -17,12 +17,14 @@ namespace zListBack.Controllers
         private readonly IUserRepository _userRepository;
         private readonly RecaptchaService _recaptchaService;
         private readonly EmailService _emailService;
+        private readonly SubscriptionService _subscriptionService;
 
-        public UserController(IUserRepository userRepository, RecaptchaService recaptchaService, EmailService emailService)
+        public UserController(IUserRepository userRepository, RecaptchaService recaptchaService, EmailService emailService, SubscriptionService subscriptionService)
         {
             _userRepository = userRepository;
             _recaptchaService = recaptchaService;
             _emailService = emailService;
+            _subscriptionService = subscriptionService;
         }
 
         [HttpGet("{email}")]
@@ -70,6 +72,7 @@ namespace zListBack.Controllers
                 return Result<UserModel>.Fail(result.Message ?? "Failed to add user.");
 
             _ = _emailService.SendWelcomeEmail(user.Email, user.FirstName ?? user.Email);
+            _ = _subscriptionService.ApplyPendingSponsorshipOnSignup(result.Model!.Id, request.Email);
             return Result<UserModel>.Ok(UserMapper.ToDto(result.Model!));
         }
 

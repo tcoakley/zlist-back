@@ -49,6 +49,15 @@ namespace zListBack.Repositories
             return await _connection.ExecuteScalarAsync<int>(sql, new { SponsorUserId = sponsorUserId });
         }
 
+        public async Task<bool> HasActiveFreeSeatCollaborator(int sponsorUserId)
+        {
+            const string sql = @"
+                SELECT COUNT(1) FROM SponsoredCollaborators
+                WHERE SponsorUserId = @SponsorUserId AND IsFreeSeat = 1 AND IsActive = 1
+                  AND (GraceUntil IS NULL OR GraceUntil > GETUTCDATE());";
+            return await _connection.ExecuteScalarAsync<bool>(sql, new { SponsorUserId = sponsorUserId });
+        }
+
         public async Task<bool> HasActiveSponsoredCollaborator(int sponsorUserId, int sponsoredUserId)
         {
             const string sql = @"
@@ -58,17 +67,17 @@ namespace zListBack.Repositories
             return await _connection.ExecuteScalarAsync<bool>(sql, new { SponsorUserId = sponsorUserId, SponsoredUserId = sponsoredUserId });
         }
 
-        public async Task AddSponsoredCollaborator(int sponsorUserId, int sponsoredUserId)
+        public async Task AddSponsoredCollaborator(int sponsorUserId, int sponsoredUserId, bool isFreeSeat)
         {
             const string sql = @"
                 IF NOT EXISTS (SELECT 1 FROM SponsoredCollaborators WHERE SponsorUserId = @SponsorUserId AND SponsoredUserId = @SponsoredUserId)
-                    INSERT INTO SponsoredCollaborators (SponsorUserId, SponsoredUserId, CreatedAt, IsActive)
-                    VALUES (@SponsorUserId, @SponsoredUserId, GETUTCDATE(), 1)
+                    INSERT INTO SponsoredCollaborators (SponsorUserId, SponsoredUserId, CreatedAt, IsActive, IsFreeSeat)
+                    VALUES (@SponsorUserId, @SponsoredUserId, GETUTCDATE(), 1, @IsFreeSeat)
                 ELSE
                     UPDATE SponsoredCollaborators
-                    SET IsActive = 1, GraceUntil = NULL
+                    SET IsActive = 1, GraceUntil = NULL, IsFreeSeat = @IsFreeSeat
                     WHERE SponsorUserId = @SponsorUserId AND SponsoredUserId = @SponsoredUserId;";
-            await _connection.ExecuteAsync(sql, new { SponsorUserId = sponsorUserId, SponsoredUserId = sponsoredUserId });
+            await _connection.ExecuteAsync(sql, new { SponsorUserId = sponsorUserId, SponsoredUserId = sponsoredUserId, IsFreeSeat = isFreeSeat });
         }
 
         public async Task StartSponsorshipGrace(int sponsorUserId, int sponsoredUserId, DateTime graceUntil)
@@ -189,11 +198,11 @@ namespace zListBack.Repositories
         {
             const string sql = @"
                 SELECT sc.SponsoredUserId AS UserId, u.Email, u.FirstName, u.LastName,
-                       sc.CreatedAt, sc.IsActive, sc.GraceUntil
+                       sc.CreatedAt, sc.IsActive, sc.GraceUntil, sc.IsFreeSeat
                 FROM SponsoredCollaborators sc
                 INNER JOIN Users u ON u.Id = sc.SponsoredUserId
                 WHERE sc.SponsorUserId = @SponsorUserId
-                ORDER BY sc.CreatedAt;";
+                ORDER BY sc.IsFreeSeat DESC, sc.CreatedAt;";
             return await _connection.QueryAsync<SponsoredCollaboratorModel>(sql, new { SponsorUserId = sponsorUserId });
         }
 
@@ -351,6 +360,58 @@ namespace zListBack.Repositories
                        SubscriptionSource, StripeCustomerId, StripeSubscriptionId, GracePeriodUntil, IsAdmin
                 FROM Users WHERE LOWER(Email) = LOWER(@Email);";
             return await _connection.QuerySingleOrDefaultAsync<User>(sql, new { Email = email });
+        }
+
+        // === Pending sponsor invitations =============================================
+
+        public async Task CreatePendingSponsorInvitation(int sponsorUserId, string email, string token, DateTime expiresAt)
+        {
+            const string sql = @"
+                IF NOT EXISTS (SELECT 1 FROM PendingSponsorInvitations WHERE SponsorUserId = @SponsorUserId AND LOWER(InvitedEmail) = LOWER(@Email))
+                    INSERT INTO PendingSponsorInvitations (SponsorUserId, InvitedEmail, Token, ExpiresAt)
+                    VALUES (@SponsorUserId, @Email, @Token, @ExpiresAt)
+                ELSE
+                    UPDATE PendingSponsorInvitations
+                    SET Token = @Token, ExpiresAt = @ExpiresAt
+                    WHERE SponsorUserId = @SponsorUserId AND LOWER(InvitedEmail) = LOWER(@Email);";
+            await _connection.ExecuteAsync(sql, new { SponsorUserId = sponsorUserId, Email = email, Token = token, ExpiresAt = expiresAt });
+        }
+
+        public async Task<IEnumerable<PendingSponsorInvitationModel>> GetPendingSponsorInvitations(int sponsorUserId)
+        {
+            const string sql = @"
+                SELECT Id, InvitedEmail, CreatedAt, ExpiresAt
+                FROM PendingSponsorInvitations
+                WHERE SponsorUserId = @SponsorUserId AND ExpiresAt > GETUTCDATE()
+                ORDER BY CreatedAt;";
+            return await _connection.QueryAsync<PendingSponsorInvitationModel>(sql, new { SponsorUserId = sponsorUserId });
+        }
+
+        public async Task<(int SponsorUserId, string Token)?> GetPendingSponsorInvitationByEmail(string email)
+        {
+            const string sql = @"
+                SELECT TOP 1 SponsorUserId, Token
+                FROM PendingSponsorInvitations
+                WHERE LOWER(InvitedEmail) = LOWER(@Email) AND ExpiresAt > GETUTCDATE()
+                ORDER BY CreatedAt;";
+            var row = await _connection.QuerySingleOrDefaultAsync<dynamic>(sql, new { Email = email });
+            if (row == null) return null;
+            return ((int)row.SponsorUserId, (string)row.Token);
+        }
+
+        public async Task DeletePendingSponsorInvitation(int sponsorUserId, string email)
+        {
+            const string sql = @"
+                DELETE FROM PendingSponsorInvitations
+                WHERE SponsorUserId = @SponsorUserId AND LOWER(InvitedEmail) = LOWER(@Email);";
+            await _connection.ExecuteAsync(sql, new { SponsorUserId = sponsorUserId, Email = email });
+        }
+
+        public async Task DeletePendingSponsorInvitationByEmail(string email)
+        {
+            const string sql = @"
+                DELETE FROM PendingSponsorInvitations WHERE LOWER(InvitedEmail) = LOWER(@Email);";
+            await _connection.ExecuteAsync(sql, new { Email = email });
         }
     }
 }

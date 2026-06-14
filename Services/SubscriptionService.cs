@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Stripe;
 using zListBack.Configurations;
@@ -19,20 +20,26 @@ namespace zListBack.Services
         private readonly IUserRepository _userRepo;
         private readonly IUserPaymentHistoryRepository _paymentHistoryRepo;
         private readonly ListRepository _listRepo;
+        private readonly EmailService _emailService;
         private readonly StripeSettings _stripe;
+        private readonly ILogger<SubscriptionService> _logger;
 
         public SubscriptionService(
             ISubscriptionRepository subscriptionRepo,
             IUserRepository userRepo,
             IUserPaymentHistoryRepository paymentHistoryRepo,
             ListRepository listRepo,
-            IOptions<StripeSettings> stripeOptions)
+            EmailService emailService,
+            IOptions<StripeSettings> stripeOptions,
+            ILogger<SubscriptionService> logger)
         {
             _subscriptionRepo = subscriptionRepo;
             _userRepo = userRepo;
             _paymentHistoryRepo = paymentHistoryRepo;
             _listRepo = listRepo;
+            _emailService = emailService;
             _stripe = stripeOptions.Value;
+            _logger = logger;
         }
 
         public Task<bool> IsPremium(int userId) =>
@@ -48,11 +55,10 @@ namespace zListBack.Services
         public Task<int> GetOwnedListCount(int userId) =>
             _subscriptionRepo.GetOwnedListCount(userId);
 
-        // Returns true if this is the sponsor's first collaborator (included in base price).
+        // Returns true if the sponsor's free slot (included in base price) is not yet occupied.
         public async Task<bool> IsFirstCollaboratorSlot(int sponsorUserId)
         {
-            var count = await _subscriptionRepo.GetActiveSponsoredCount(sponsorUserId);
-            return count == 0;
+            return !await _subscriptionRepo.HasActiveFreeSeatCollaborator(sponsorUserId);
         }
 
         public Task<bool> IsAlreadySponsored(int sponsorUserId, int sponsoredUserId) =>
@@ -64,7 +70,7 @@ namespace zListBack.Services
             try
             {
                 var isFirst = await IsFirstCollaboratorSlot(sponsorUserId);
-                await _subscriptionRepo.AddSponsoredCollaborator(sponsorUserId, sponsoredUserId);
+                await _subscriptionRepo.AddSponsoredCollaborator(sponsorUserId, sponsoredUserId, isFreeSeat: true);
 
                 if (!isFirst)
                     await AddStripeCollaboratorSeat(sponsorUserId);
@@ -73,6 +79,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SponsorCollaborator failed. SponsorUserId={SponsorUserId}, SponsoredUserId={SponsoredUserId}", sponsorUserId, sponsoredUserId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -125,6 +132,206 @@ namespace zListBack.Services
         public Task<IEnumerable<UserPaymentHistory>> GetPaymentHistory(int userId) =>
             _paymentHistoryRepo.GetByUserIdAsync(userId);
 
+        // === Free collaborator by email ==============================================
+
+        public async Task<Result<bool>> AddFreeCollaboratorByEmail(int sponsorId, string email)
+        {
+            try
+            {
+                var hasFreeSlot = await IsFirstCollaboratorSlot(sponsorId);
+                if (!hasFreeSlot)
+                    return Result<bool>.Fail("Your free collaborator slot is already taken. Use the paid seat option to add more collaborators.");
+
+                var sponsorResult = await _userRepo.GetUserAsync(sponsorId);
+                var sponsorName = sponsorResult.Model != null
+                    ? $"{sponsorResult.Model.FirstName} {sponsorResult.Model.LastName}".Trim()
+                    : "Someone";
+
+                var targetUser = await _subscriptionRepo.GetUserByEmail(email);
+                if (targetUser == null)
+                    return await InviteNewCollaborator(sponsorId, email, sponsorName);
+
+                if (targetUser.Id == sponsorId)
+                    return Result<bool>.Fail("You cannot sponsor yourself.");
+
+                var alreadySponsored = await IsAlreadySponsored(sponsorId, targetUser.Id);
+                if (alreadySponsored)
+                    return Result<bool>.Fail("That user is already one of your sponsored collaborators.");
+
+                var result = await SponsorCollaborator(sponsorId, targetUser.Id);
+                if (!result.Success) return result;
+
+                var collaboratorFirstName = targetUser.FirstName ?? targetUser.Email;
+                _ = _emailService.SendCollaboratorAddedEmail(targetUser.Email, collaboratorFirstName, sponsorName, isFreeSlot: true);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AddFreeCollaboratorByEmail failed. SponsorUserId={SponsorUserId}, Email={Email}", sponsorId, email);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        // === Paid collaborator by email ==============================================
+
+        public async Task<Result<bool>> AddPaidCollaboratorByEmail(int sponsorId, string email)
+        {
+            try
+            {
+                var sponsorResult = await _userRepo.GetUserAsync(sponsorId);
+                if (sponsorResult.Model?.SubscriptionSource != "stripe")
+                    return Result<bool>.Fail("Paid collaborator seats require an active paid subscription. Sponsored and admin-granted accounts can add one free collaborator but cannot add paid seats.");
+
+                var sponsorName = sponsorResult.Model != null
+                    ? $"{sponsorResult.Model.FirstName} {sponsorResult.Model.LastName}".Trim()
+                    : "Someone";
+
+                var targetUser = await _subscriptionRepo.GetUserByEmail(email);
+
+                if (targetUser == null)
+                {
+                    var tempPassword = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16];
+                    var newUser = new Models.User { Email = email, Password = tempPassword };
+                    var createResult = await _userRepo.AddUserAsync(newUser);
+                    if (!createResult.Success || createResult.Model == null)
+                        return Result<bool>.Fail("Could not create an account for that email address.");
+
+                    targetUser = createResult.Model;
+                    var result2 = await AddPaidCollaborator(sponsorId, targetUser.Id);
+                    if (!result2.Success) return result2;
+
+                    _ = _emailService.SendPaidSeatAccountCreatedEmail(email, sponsorName, tempPassword);
+                    return result2;
+                }
+
+                if (targetUser.Id == sponsorId)
+                    return Result<bool>.Fail("You cannot sponsor yourself.");
+
+                var alreadySponsored = await IsAlreadySponsored(sponsorId, targetUser.Id);
+                if (alreadySponsored)
+                    return Result<bool>.Fail("That user is already one of your sponsored collaborators.");
+
+                var result = await AddPaidCollaborator(sponsorId, targetUser.Id);
+                if (!result.Success) return result;
+
+                var name = targetUser.FirstName ?? targetUser.Email;
+                _ = _emailService.SendCollaboratorAddedEmail(targetUser.Email, name, sponsorName, isFreeSlot: false);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AddPaidCollaboratorByEmail failed. SponsorUserId={SponsorUserId}, Email={Email}", sponsorId, email);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        // === Pending sponsor invitations ==============================================
+
+        public async Task<Result<bool>> InviteNewCollaborator(int sponsorUserId, string email, string sponsorName)
+        {
+            try
+            {
+                var token = Convert.ToBase64String(Guid.NewGuid().ToByteArray())
+                    .Replace("+", "-").Replace("/", "_").Replace("=", "")[..22];
+                var expiresAt = DateTime.UtcNow.AddDays(7);
+
+                await _subscriptionRepo.CreatePendingSponsorInvitation(sponsorUserId, email, token, expiresAt);
+                _ = _emailService.SendSponsorInvitationEmail(email, sponsorName);
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "InviteNewCollaborator failed. SponsorUserId={SponsorUserId}, Email={Email}", sponsorUserId, email);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public Task<IEnumerable<PendingSponsorInvitationModel>> GetPendingSponsorInvitations(int sponsorUserId) =>
+            _subscriptionRepo.GetPendingSponsorInvitations(sponsorUserId);
+
+        public async Task<Result<bool>> CancelPendingSponsorInvitation(int sponsorUserId, string email)
+        {
+            await _subscriptionRepo.DeletePendingSponsorInvitation(sponsorUserId, email);
+            return Result<bool>.Ok(true);
+        }
+
+        public async Task ApplyPendingSponsorshipOnSignup(int newUserId, string email)
+        {
+            try
+            {
+                var pending = await _subscriptionRepo.GetPendingSponsorInvitationByEmail(email);
+                if (pending == null) return;
+
+                await _subscriptionRepo.AddSponsoredCollaborator(pending.Value.SponsorUserId, newUserId, isFreeSeat: true);
+                await _subscriptionRepo.DeletePendingSponsorInvitationByEmail(email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ApplyPendingSponsorshipOnSignup failed. UserId={UserId}, Email={Email}", newUserId, email);
+            }
+        }
+
+        // === Collaborator premium check ===============================================
+
+        public async Task<CollaboratorCheckModel> CheckCollaboratorPremiumStatus(int sponsorUserId, string email)
+        {
+            var user = await _subscriptionRepo.GetUserByEmail(email);
+            if (user == null)
+                return new CollaboratorCheckModel { Exists = false };
+
+            var isAlreadyYours = await IsAlreadySponsored(sponsorUserId, user.Id);
+            var isPremium = await IsPremium(user.Id);
+
+            bool isSponsoredByOther = false;
+            string? premiumSource = null;
+
+            if (isPremium)
+            {
+                premiumSource = user.SubscriptionSource;
+                if (user.Subscription != "premium") // user is on sponsored/free but IsPremium returned true → sponsored
+                {
+                    premiumSource = "sponsored";
+                    var sponsor = await _subscriptionRepo.GetSponsor(user.Id);
+                    if (sponsor != null && sponsor.Id != sponsorUserId)
+                        isSponsoredByOther = true;
+                }
+            }
+
+            return new CollaboratorCheckModel
+            {
+                Exists = true,
+                IsPremium = isPremium,
+                PremiumSource = premiumSource,
+                IsAlreadyYourCollaborator = isAlreadyYours,
+                IsAlreadySponsoredByOther = isSponsoredByOther
+            };
+        }
+
+        // === Paid collaborator seat (Stripe before DB) ================================
+
+        public async Task<Result<bool>> AddPaidCollaborator(int sponsorUserId, int sponsoredUserId)
+        {
+            try
+            {
+                await AddStripeCollaboratorSeat(sponsorUserId);
+                await _subscriptionRepo.AddSponsoredCollaborator(sponsorUserId, sponsoredUserId, isFreeSeat: false);
+                return Result<bool>.Ok(true);
+            }
+            catch (StripeException ex)
+            {
+                _logger.LogError(ex, "AddPaidCollaborator Stripe failed. SponsorUserId={SponsorUserId}", sponsorUserId);
+                return Result<bool>.Fail(ex.StripeError?.Message ?? ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AddPaidCollaborator failed. SponsorUserId={SponsorUserId}", sponsorUserId);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         // === Upgrade =================================================================
         // Creates a Stripe customer (if needed) and an incomplete subscription.
         // Returns the PaymentIntent clientSecret so the frontend can confirm payment
@@ -154,10 +361,12 @@ namespace zListBack.Services
             }
             catch (StripeException ex)
             {
+                _logger.LogError(ex, "Upgrade (Stripe) failed. UserId={UserId}, Email={Email}", userId, email);
                 return Result<UpgradeResponse>.Fail(ex.StripeError?.Message ?? ex.Message);
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Upgrade failed. UserId={UserId}, Email={Email}", userId, email);
                 return Result<UpgradeResponse>.Fail(ex.Message);
             }
         }
@@ -186,10 +395,12 @@ namespace zListBack.Services
             }
             catch (StripeException ex)
             {
+                _logger.LogError(ex, "Cancel (Stripe) failed. UserId={UserId}", userId);
                 return Result<bool>.Fail(ex.StripeError?.Message ?? ex.Message);
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "Cancel failed. UserId={UserId}", userId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -208,6 +419,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GrantPremium failed. Email={Email}, Source={Source}", email, source);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -224,6 +436,7 @@ namespace zListBack.Services
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "RevokePremium failed. Email={Email}", email);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -273,7 +486,8 @@ namespace zListBack.Services
         {
             var userResult = await _userRepo.GetUserAsync(sponsorUserId);
             var subscriptionId = userResult.Model?.StripeSubscriptionId;
-            if (string.IsNullOrEmpty(subscriptionId)) return;
+            if (string.IsNullOrEmpty(subscriptionId))
+                throw new InvalidOperationException("Paid collaborator seats require an active Stripe subscription. Admin-granted or gift premium accounts cannot add paid seats.");
 
             var subSvc = new StripeSubscriptionSvc();
             var subscription = await subSvc.GetAsync(subscriptionId, new SubscriptionGetOptions

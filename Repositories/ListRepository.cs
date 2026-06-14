@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Microsoft.Extensions.Logging;
 using zListBack.Models;
 using zListBack.Dtos;
 
@@ -9,10 +10,12 @@ namespace zListBack.Repositories
     public class ListRepository
     {
         private readonly IDbConnection _connection;
+        private readonly ILogger<ListRepository> _logger;
 
-        public ListRepository(IDbConnection connection)
+        public ListRepository(IDbConnection connection, ILogger<ListRepository> logger)
         {
             _connection = connection;
+            _logger = logger;
         }
 
         public async Task<Result<List>> AddList(List list, int userId)
@@ -69,6 +72,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "AddList failed. UserId={UserId}, ListName={ListName}", userId, list.ListName);
                 return Result<List>.Fail(ex.Message);
             }
         }
@@ -102,6 +106,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "EditList failed. ListId={ListId}", updatedList.Id);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -132,7 +137,7 @@ namespace zListBack.Repositories
             await _connection.ExecuteAsync(sql, new { UserId = userId, KeepIds = keepIds.Count > 0 ? keepIds : new List<int> { -1 } });
         }
 
-        public async Task RestoreArchivedLists(int userId)
+        public virtual async Task RestoreArchivedLists(int userId)
         {
             const string sql = @"
                 UPDATE l SET l.IsArchived = 0
@@ -233,6 +238,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "DeleteList failed. ListId={ListId}, UserId={UserId}", listId, userId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -275,6 +281,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "AddListItem failed. ListId={ListId}, ItemName={ItemName}", item.ListId, item.ItemName);
                 return Result<ListItem>.Fail(ex.Message);
             }
         }
@@ -309,6 +316,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "EditListItem failed. ItemId={ItemId}", updatedItem.Id);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -359,6 +367,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "DeleteListItem failed. ItemId={ItemId}", itemId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -411,6 +420,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetList failed. ListId={ListId}, UserId={UserId}", id, userId);
                 return Result<List>.Fail(ex.Message);
             }
         }
@@ -467,6 +477,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetLists failed. UserId={UserId}", userId);
                 return Result<System.Collections.Generic.List<List>>.Fail(ex.Message);
             }
         }
@@ -616,6 +627,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "CreateListRun failed. ListId={ListId}", listId);
                 return Result<ListRun>.Fail(ex.Message);
             }
         }
@@ -644,6 +656,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "CompleteListRun failed. RunId={RunId}, UserId={UserId}", runId, userId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -673,6 +686,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "SetListRunItemCompletion failed. RunItemId={RunItemId}, UserId={UserId}", runItemId, userId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -722,6 +736,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetListRun failed. RunId={RunId}", runId);
                 return Result<ListRun>.Fail(ex.Message);
             }
         }
@@ -785,6 +800,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetListRuns failed. ListId={ListId}", listId);
                 return Result<System.Collections.Generic.List<ListRun>>.Fail(ex.Message);
             }
         }
@@ -812,6 +828,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetListRunHistory failed. ListId={ListId}", listId);
                 return Result<System.Collections.Generic.List<ListRunHistoryModel>>.Fail(ex.Message);
             }
         }
@@ -905,6 +922,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "AddListRunItem failed. ListRunId={ListRunId}", listRunId);
                 return Result<ListRunItem>.Fail(ex.Message);
             }
         }
@@ -928,6 +946,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetPendingInvitations failed. ListId={ListId}", listId);
                 return Result<System.Collections.Generic.List<ListPendingInviteModel>>.Fail(ex.Message);
             }
         }
@@ -953,7 +972,31 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetListMembers failed. ListId={ListId}", listId);
                 return Result<System.Collections.Generic.List<ListMemberModel>>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<List<ListMemberModel>>> GetKnownCollaborators(int userId)
+        {
+            try
+            {
+                const string sql = @"
+                    SELECT DISTINCT u.Id AS UserId, u.FirstName, u.LastName, u.Email, 0 AS IsOwner
+                    FROM UserLists ul
+                    INNER JOIN UserLists ownerUl ON ownerUl.ListId = ul.ListId
+                        AND ownerUl.UserId = @UserId AND ownerUl.IsOwner = 1
+                    INNER JOIN Users u ON u.Id = ul.UserId
+                    WHERE ul.UserId != @UserId
+                    ORDER BY u.Email;";
+
+                var members = await _connection.QueryAsync<ListMemberModel>(sql, new { UserId = userId });
+                return Result<List<ListMemberModel>>.Ok(members.ToList());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetKnownCollaborators failed. UserId={UserId}", userId);
+                return Result<List<ListMemberModel>>.Fail(ex.Message);
             }
         }
 
@@ -1013,6 +1056,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "CreateListInvitation failed. ListId={ListId}, InvitedEmail={InvitedEmail}", invitation.ListId, invitation.InvitedEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -1050,6 +1094,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetListInvitation failed. Token={Token}", token);
                 return Result<ListInvitation>.Fail(ex.Message);
             }
         }
@@ -1107,6 +1152,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "AcceptListInvitation failed. Token={Token}, UserId={UserId}", token, userId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -1142,6 +1188,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "RemoveListMember failed. ListId={ListId}, RequestingUserId={RequestingUserId}, MemberUserId={MemberUserId}", listId, requestingUserId, memberUserId);
                 return Result<bool>.Fail(ex.Message);
             }
         }
@@ -1173,6 +1220,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "LeaveList failed. ListId={ListId}, UserId={UserId}", listId, userId);
                 return Result<bool>.Fail(ex.Message);
             }
         }

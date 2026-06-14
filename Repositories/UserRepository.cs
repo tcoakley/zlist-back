@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Microsoft.Extensions.Logging;
 using zListBack.Models;
 
 namespace zListBack.Repositories
@@ -7,10 +8,12 @@ namespace zListBack.Repositories
     public class UserRepository : IUserRepository
     {
         private readonly IDbConnection _connection;
+        private readonly ILogger<UserRepository> _logger;
 
-        public UserRepository(IDbConnection connection)
+        public UserRepository(IDbConnection connection, ILogger<UserRepository> logger)
         {
             _connection = connection;
+            _logger = logger;
         }
 
         public async Task<Result<User>> GetUserByEmailAsync(string email)
@@ -35,6 +38,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetUserByEmailAsync failed. Email={Email}", email);
                 return Result<User>.Fail(ex.Message);
             }
         }
@@ -61,6 +65,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GetUserAsync failed. UserId={UserId}", id);
                 return Result<User>.Fail(ex.Message);
             }
         }
@@ -95,6 +100,8 @@ namespace zListBack.Repositories
             {
                 var isDuplicate = ex.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) ||
                                   (ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true);
+                if (!isDuplicate)
+                    _logger.LogError(ex, "AddUserAsync failed. Email={Email}", user.Email);
                 var message = isDuplicate
                     ? "A user with this email already exists. Please login or use a different email address."
                     : ex.Message;
@@ -170,6 +177,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "UpdateUserAsync failed. UserId={UserId}", model.Id);
                 return Result<User>.Fail(ex.Message);
             }
         }
@@ -213,6 +221,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "CheckLoginAsync failed. Email={Email}", email);
                 return Result<User>.Fail(ex.Message);
             }
         }
@@ -239,6 +248,7 @@ namespace zListBack.Repositories
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "GenerateResetPassword failed. Email={Email}", email);
                 return Result<string>.Fail(ex.Message);
             }
         }
