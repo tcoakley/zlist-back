@@ -21,9 +21,11 @@ namespace zListBack.Repositories
                     (u.Subscription = 'premium' AND (u.GracePeriodUntil IS NULL OR u.GracePeriodUntil > GETUTCDATE()))
                     OR EXISTS (
                         SELECT 1 FROM SponsoredCollaborators sc
+                        INNER JOIN Users sponsor ON sponsor.Id = sc.SponsorUserId
                         WHERE sc.SponsoredUserId = @UserId
                           AND sc.IsActive = 1
                           AND (sc.GraceUntil IS NULL OR sc.GraceUntil > GETUTCDATE())
+                          AND sponsor.Subscription = 'premium'
                     )
                 THEN 1 ELSE 0 END
                 FROM Users u WHERE u.Id = @UserId;";
@@ -159,7 +161,15 @@ namespace zListBack.Repositories
                 INNER JOIN UserLists ownerUl ON ownerUl.ListId = ul.ListId AND ownerUl.UserId = @SponsorUserId AND ownerUl.IsOwner = 1
                 INNER JOIN Users u ON u.Id = ul.UserId
                 WHERE ul.UserId != @SponsorUserId
-                  AND u.Subscription != 'premium';";
+                  AND u.Subscription != 'premium'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM SponsoredCollaborators sc2
+                      INNER JOIN Users s2 ON s2.Id = sc2.SponsorUserId
+                      WHERE sc2.SponsoredUserId = ul.UserId
+                        AND sc2.IsActive = 1
+                        AND (sc2.GraceUntil IS NULL OR sc2.GraceUntil > GETUTCDATE())
+                        AND s2.Subscription = 'premium'
+                  );";
             return await _connection.ExecuteScalarAsync<int>(sql, new { SponsorUserId = sponsorUserId });
         }
 
@@ -192,6 +202,27 @@ namespace zListBack.Repositories
                 WHERE sc.SponsoredUserId = @SponsoredUserId AND sc.IsActive = 1
                 ORDER BY sc.CreatedAt;";
             return await _connection.QuerySingleOrDefaultAsync<User>(sql, new { SponsoredUserId = sponsoredUserId });
+        }
+
+        public async Task<int?> GetActiveFreeSeatSponsorId(int sponsoredUserId)
+        {
+            const string sql = @"
+                SELECT TOP 1 SponsorUserId
+                FROM SponsoredCollaborators
+                WHERE SponsoredUserId = @SponsoredUserId AND IsFreeSeat = 1 AND IsActive = 1;";
+            return await _connection.QuerySingleOrDefaultAsync<int?>(sql, new { SponsoredUserId = sponsoredUserId });
+        }
+
+        public async Task<(int SponsorUserId, bool IsFreeSeat)?> GetActiveSponsorRecord(int sponsoredUserId)
+        {
+            const string sql = @"
+                SELECT TOP 1 SponsorUserId, IsFreeSeat
+                FROM SponsoredCollaborators
+                WHERE SponsoredUserId = @SponsoredUserId AND IsActive = 1
+                ORDER BY CreatedAt;";
+            var row = await _connection.QuerySingleOrDefaultAsync<dynamic>(sql, new { SponsoredUserId = sponsoredUserId });
+            if (row == null) return null;
+            return ((int)row.SponsorUserId, (bool)row.IsFreeSeat);
         }
 
         public async Task<IEnumerable<SponsoredCollaboratorModel>> GetSponsoredCollaborators(int sponsorUserId)

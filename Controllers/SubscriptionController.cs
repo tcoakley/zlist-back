@@ -51,7 +51,7 @@ namespace zListBack.Controllers
                 var sponsor = await _subscriptionRepo.GetSponsor(userId);
                 if (sponsor != null)
                 {
-                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName[0]}.";
+                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName}";
                     sponsorName = $"{sponsor.FirstName}{last}".Trim();
                 }
             }
@@ -87,9 +87,8 @@ namespace zListBack.Controllers
             if (!userResult.Success || userResult.Model == null)
                 return Result<UpgradeResponse>.Fail("User not found.");
 
-            var isPremium = await _subscriptionService.IsPremium(userId);
-            if (isPremium)
-                return Result<UpgradeResponse>.Fail("Account is already premium.");
+            if (userResult.Model.SubscriptionSource == "stripe")
+                return Result<UpgradeResponse>.Fail("Account is already on a paid subscription.");
 
             return await _subscriptionService.Upgrade(userId, userResult.Model.Email);
         }
@@ -290,7 +289,7 @@ namespace zListBack.Controllers
                 var sponsor = await _subscriptionRepo.GetSponsor(user.Id);
                 if (sponsor != null)
                 {
-                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName[0]}.";
+                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName}";
                     sponsorName = $"{sponsor.FirstName}{last}".Trim();
                 }
             }

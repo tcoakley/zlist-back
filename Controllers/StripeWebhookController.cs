@@ -94,6 +94,7 @@ namespace zListBack.Controllers
             {
                 await _subscriptionRepo.SetUserSubscription(user.Id, "premium", "stripe", periodEnd.Value);
                 await _listRepo.RestoreArchivedLists(user.Id);
+                await _subscriptionService.HandleCollaboratorSelfUpgrade(user.Id);
             }
 
             // Clear grace period and any pending cancellation — payment succeeded means they renewed

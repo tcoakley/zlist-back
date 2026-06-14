@@ -16,17 +16,20 @@ namespace zListBack.Controllers
         private readonly IUserRepository _userRepository;
         private readonly EmailService _emailService;
         private readonly RefreshTokenRepository _refreshTokenRepository;
+        private readonly SubscriptionService _subscriptionService;
 
         public LoginController(
             IConfiguration configuration,
             IUserRepository userRepository,
             EmailService emailService,
-            RefreshTokenRepository refreshTokenRepository)
+            RefreshTokenRepository refreshTokenRepository,
+            SubscriptionService subscriptionService)
         {
             _configuration = configuration;
             _userRepository = userRepository;
             _emailService = emailService;
             _refreshTokenRepository = refreshTokenRepository;
+            _subscriptionService = subscriptionService;
         }
 
         [HttpPost]
@@ -64,10 +67,13 @@ namespace zListBack.Controllers
             };
             Response.Cookies.Append("refreshToken", refreshTokenString, cookieOptions);
 
+            var userDto = UserMapper.ToDto(user);
+            userDto.IsPremium = await _subscriptionService.IsPremium(user.Id);
+
             return Ok(Result<object>.Ok(new
             {
                 Token = accessToken,
-                User = UserMapper.ToDto(user)
+                User = userDto
             }));
         }
 

@@ -9,6 +9,7 @@
         public string Subscription { get; set; } = "free";
         public DateTime? SubscriptionExpiresAt { get; set; }
         public string SubscriptionSource { get; set; } = "free";
+        public bool IsPremium { get; set; }
         public bool IsAdmin { get; set; }
         public bool IsHelpEnabled { get; set; } = true;
         public bool SortCompletedToBottom { get; set; } = true;

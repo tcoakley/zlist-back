@@ -149,7 +149,14 @@ namespace zListBack.Services
 
                 var targetUser = await _subscriptionRepo.GetUserByEmail(email);
                 if (targetUser == null)
-                    return await InviteNewCollaborator(sponsorId, email, sponsorName);
+                {
+                    var existing = await _subscriptionRepo.GetPendingSponsorInvitationByEmail(email);
+                    if (existing != null && existing.Value.SponsorUserId != sponsorId)
+                        return Result<bool>.Fail("That email has already been invited by another sponsor and is awaiting signup.");
+
+                    var includesPremium = sponsorResult.Model?.SubscriptionSource == "stripe";
+                    return await InviteNewCollaborator(sponsorId, email, sponsorName, includesPremium);
+                }
 
                 if (targetUser.Id == sponsorId)
                     return Result<bool>.Fail("You cannot sponsor yourself.");
@@ -191,6 +198,10 @@ namespace zListBack.Services
 
                 if (targetUser == null)
                 {
+                    var existing = await _subscriptionRepo.GetPendingSponsorInvitationByEmail(email);
+                    if (existing != null)
+                        return Result<bool>.Fail("That email has a pending collaborator invitation from another user. They need to sign up first.");
+
                     var tempPassword = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16];
                     var newUser = new Models.User { Email = email, Password = tempPassword };
                     var createResult = await _userRepo.AddUserAsync(newUser);
@@ -229,7 +240,7 @@ namespace zListBack.Services
 
         // === Pending sponsor invitations ==============================================
 
-        public async Task<Result<bool>> InviteNewCollaborator(int sponsorUserId, string email, string sponsorName)
+        public async Task<Result<bool>> InviteNewCollaborator(int sponsorUserId, string email, string sponsorName, bool includesPremium = true)
         {
             try
             {
@@ -238,7 +249,7 @@ namespace zListBack.Services
                 var expiresAt = DateTime.UtcNow.AddDays(7);
 
                 await _subscriptionRepo.CreatePendingSponsorInvitation(sponsorUserId, email, token, expiresAt);
-                _ = _emailService.SendSponsorInvitationEmail(email, sponsorName);
+                _ = _emailService.SendSponsorInvitationEmail(email, sponsorName, includesPremium);
 
                 return Result<bool>.Ok(true);
             }
@@ -318,6 +329,7 @@ namespace zListBack.Services
             {
                 await AddStripeCollaboratorSeat(sponsorUserId);
                 await _subscriptionRepo.AddSponsoredCollaborator(sponsorUserId, sponsoredUserId, isFreeSeat: false);
+                await ReleaseFreeSeatIfSponsored(sponsoredUserId);
                 return Result<bool>.Ok(true);
             }
             catch (StripeException ex)
@@ -329,6 +341,69 @@ namespace zListBack.Services
             {
                 _logger.LogError(ex, "AddPaidCollaborator failed. SponsorUserId={SponsorUserId}", sponsorUserId);
                 return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        // Called when a user is added as a paid seat — releases any free-slot sponsorship
+        // they hold with another sponsor, since they are now covered by a paid seat.
+        private async Task ReleaseFreeSeatIfSponsored(int sponsoredUserId)
+        {
+            try
+            {
+                var freeSeatSponsorId = await _subscriptionRepo.GetActiveFreeSeatSponsorId(sponsoredUserId);
+                if (freeSeatSponsorId == null) return;
+
+                var sponsorResult = await _userRepo.GetUserAsync(freeSeatSponsorId.Value);
+                var collaboratorResult = await _userRepo.GetUserAsync(sponsoredUserId);
+
+                await _subscriptionRepo.DeactivateSponsoredCollaborator(freeSeatSponsorId.Value, sponsoredUserId);
+
+                if (sponsorResult.Model != null && collaboratorResult.Model != null)
+                {
+                    var collaboratorName = $"{collaboratorResult.Model.FirstName} {collaboratorResult.Model.LastName}".Trim();
+                    if (string.IsNullOrEmpty(collaboratorName)) collaboratorName = collaboratorResult.Model.Email;
+                    var sponsorFirstName = sponsorResult.Model.FirstName ?? sponsorResult.Model.Email;
+                    _ = _emailService.SendFreeSeatReleasedEmail(sponsorResult.Model.Email, sponsorFirstName, collaboratorName);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ReleaseFreeSeatIfSponsored failed. SponsoredUserId={SponsoredUserId}", sponsoredUserId);
+            }
+        }
+
+        // === Collaborator self-upgrade ===============================================
+        // Called from the webhook when a sponsored collaborator subscribes via Stripe.
+        // Removes the Stripe seat from their sponsor (if paid) and deactivates the record.
+
+        public async Task HandleCollaboratorSelfUpgrade(int userId)
+        {
+            try
+            {
+                var record = await _subscriptionRepo.GetActiveSponsorRecord(userId);
+                if (record == null) return;
+
+                var (sponsorId, isFreeSeat) = record.Value;
+
+                var sponsorResult = await _userRepo.GetUserAsync(sponsorId);
+                var collaboratorResult = await _userRepo.GetUserAsync(userId);
+
+                if (!isFreeSeat)
+                    await RemoveStripeCollaboratorSeat(sponsorId);
+
+                await _subscriptionRepo.DeactivateSponsoredCollaborator(sponsorId, userId);
+
+                if (sponsorResult.Model != null && collaboratorResult.Model != null)
+                {
+                    var collaboratorName = $"{collaboratorResult.Model.FirstName} {collaboratorResult.Model.LastName}".Trim();
+                    if (string.IsNullOrEmpty(collaboratorName)) collaboratorName = collaboratorResult.Model.Email;
+                    var sponsorFirstName = sponsorResult.Model.FirstName ?? sponsorResult.Model.Email;
+                    _ = _emailService.SendCollaboratorUpgradedEmail(sponsorResult.Model.Email, sponsorFirstName, collaboratorName);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "HandleCollaboratorSelfUpgrade failed. UserId={UserId}", userId);
             }
         }
 

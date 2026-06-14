@@ -126,7 +126,7 @@ namespace zListBack.Services
                     Body = $@"
                         <p>{invitedByName} has invited you to collaborate on the list <strong>{listName}</strong> in zChecklist.</p>
                         <p>To accept this invitation, you will need a <strong>zChecklist Premium account</strong> ($1.99/month).</p>
-                        <p>Sign up at <a href=""https://zchecklist.com"">zchecklist.com</a> and you will be able to accept the invitation once your account is active.</p>",
+                        <p>Sign up at <a href=""{_baseUrl}"">zchecklist.com</a> and you will be able to accept the invitation once your account is active.</p>",
                     IsBodyHtml = true
                 };
                 mailMessage.To.Add(recipientEmail);
@@ -157,13 +157,13 @@ namespace zListBack.Services
                     body = $@"
                         <p>Hi {recipientFirstName},</p>
                         <p><strong>{sponsorName}</strong> has added you as a collaborator on zChecklist.
-                        They will be able to invite you to specific lists they want to share with you —
-                        you'll receive a separate invitation for each one.</p>
+                        They can share specific lists with you directly — any lists they add you to will
+                        appear in your lists view.</p>
 
                         <h3>What you can do now</h3>
                         <ul>
-                            <li>Accept list invitations from {sponsorName} when they arrive</li>
-                            <li>Check off items in real time alongside other collaborators</li>
+                            <li>Collaborate in real time on any lists {sponsorName} shares with you</li>
+                            <li>Check off items alongside other collaborators as they happen</li>
                             <li>Create and run up to 2 lists of your own for free</li>
                         </ul>
 
@@ -183,9 +183,11 @@ namespace zListBack.Services
                 {
                     body = $@"
                         <p>Hi {recipientFirstName},</p>
-                        <p><strong>{sponsorName}</strong> has added you as a collaborator on zChecklist.
-                        They will invite you to specific lists they want to share — you'll receive a
-                        separate invitation for each one.</p>
+                        <p><strong>{sponsorName}</strong> has added you as a sponsored collaborator on zChecklist.
+                        You now have full Premium access — unlimited lists, real-time collaboration, and the ability
+                        to sponsor a collaborator of your own.</p>
+                        <p>{sponsorName} can share specific lists with you directly. Any lists they add you to
+                        will appear in your lists view.</p>
                         <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>
                         <p>— The zChecklist Team</p>";
                 }
@@ -210,7 +212,7 @@ namespace zListBack.Services
         }
 
         public virtual async Task<Result<bool>> SendSponsorInvitationEmail(
-            string recipientEmail, string sponsorName)
+            string recipientEmail, string sponsorName, bool includesPremium = true)
         {
             try
             {
@@ -220,16 +222,34 @@ namespace zListBack.Services
 
                 var signupUrl = $"{_baseUrl}/signup?inviteEmail={Uri.EscapeDataString(recipientEmail)}";
 
-                var mailMessage = new MailMessage
+                string subject, body;
+                if (includesPremium)
                 {
-                    From = new MailAddress(_senderEmail),
-                    Subject = $"{sponsorName} invited you to zChecklist — premium access included",
-                    Body = $@"
+                    subject = $"{sponsorName} invited you to zChecklist — premium access included";
+                    body = $@"
                         <p>Hi there,</p>
                         <p><strong>{sponsorName}</strong> has invited you to join zChecklist and is covering your Premium membership.</p>
                         <p>Create your free account to get started — no payment needed. Your premium access will be applied automatically once you sign up.</p>
                         <p><a href=""{signupUrl}"" style=""display:inline-block;padding:10px 20px;background:#228B22;color:white;text-decoration:none;border-radius:4px;"">Create Account</a></p>
-                        <p>— The zChecklist Team</p>",
+                        <p>— The zChecklist Team</p>";
+                }
+                else
+                {
+                    subject = $"{sponsorName} invited you to collaborate on zChecklist";
+                    body = $@"
+                        <p>Hi there,</p>
+                        <p><strong>{sponsorName}</strong> has invited you to collaborate on zChecklist.</p>
+                        <p>Create your free account to get started.</p>
+                        <p><a href=""{signupUrl}"" style=""display:inline-block;padding:10px 20px;background:#228B22;color:white;text-decoration:none;border-radius:4px;"">Create Account</a></p>
+                        <p>Once you've signed up, don't forget to ask {sponsorName} to add you to their lists from the Members tab.</p>
+                        <p>— The zChecklist Team</p>";
+                }
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = subject,
+                    Body = body,
                     IsBodyHtml = true
                 };
                 mailMessage.To.Add(recipientEmail);
@@ -513,11 +533,8 @@ namespace zListBack.Services
                     Subject = $"{collaboratorName} now has their own Premium subscription",
                     Body = $@"
                         <p>Hi {sponsorFirstName},</p>
-                        <p><strong>{collaboratorName}</strong>, one of the collaborators you sponsor on zChecklist,
-                        has upgraded to their own Premium subscription.</p>
-                        <p>You may want to remove them as a sponsored collaborator on your
-                        <a href=""{_baseUrl}/account"">Account page</a> — their access is no longer dependent on you,
-                        and removing them would reduce your monthly cost.</p>
+                        <p><strong>{collaboratorName}</strong> has upgraded to their own Premium subscription on zChecklist.</p>
+                        <p>We've automatically released their seat from your account — you're no longer being charged for them.</p>
                         <p>— The zChecklist Team</p>",
                     IsBodyHtml = true
                 };
@@ -528,6 +545,37 @@ namespace zListBack.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "SendCollaboratorUpgradedEmail failed. SponsorEmail={SponsorEmail}", sponsorEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public virtual async Task<Result<bool>> SendFreeSeatReleasedEmail(
+            string sponsorEmail, string sponsorFirstName, string collaboratorName)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = $"Your free collaborator slot has been released",
+                    Body = $@"
+                        <p>Hi {sponsorFirstName},</p>
+                        <p><strong>{collaboratorName}</strong> is now covered by a paid sponsorship, so their access is no longer dependent on your free slot.</p>
+                        <p>Your free collaborator slot has been released — you can now add someone new from your <a href=""{_baseUrl}/account"">Account page</a>.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(sponsorEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendFreeSeatReleasedEmail failed. SponsorEmail={SponsorEmail}", sponsorEmail);
                 return Result<bool>.Fail(ex.Message);
             }
         }

@@ -46,9 +46,10 @@ namespace zListBack.Controllers
             }
 
             var result = await _userRepository.GetUserAsync(userId);
-            return result.Success
-                ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
-                : Result<UserModel>.Fail(result.Message ?? "Failed to retrieve user profile.");
+            if (!result.Success) return Result<UserModel>.Fail(result.Message ?? "Failed to retrieve user profile.");
+            var dto = UserMapper.ToDto(result.Model!);
+            dto.IsPremium = await _subscriptionService.IsPremium(userId);
+            return Result<UserModel>.Ok(dto);
         }
 
         [HttpPost("AddUser")]
@@ -72,7 +73,7 @@ namespace zListBack.Controllers
                 return Result<UserModel>.Fail(result.Message ?? "Failed to add user.");
 
             _ = _emailService.SendWelcomeEmail(user.Email, user.FirstName ?? user.Email);
-            _ = _subscriptionService.ApplyPendingSponsorshipOnSignup(result.Model!.Id, request.Email);
+            await _subscriptionService.ApplyPendingSponsorshipOnSignup(result.Model!.Id, request.Email);
             return Result<UserModel>.Ok(UserMapper.ToDto(result.Model!));
         }
 

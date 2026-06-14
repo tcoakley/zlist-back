@@ -139,6 +139,7 @@ CREATE TABLE SponsoredCollaborators (
 	CreatedAt       DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
 	IsActive        BIT       NOT NULL DEFAULT 1,
 	GraceUntil      DATETIME2 NULL,
+	IsFreeSeat      BIT       NOT NULL DEFAULT 0,
 	CONSTRAINT FK_SponsoredCollaborators_Sponsor   FOREIGN KEY (SponsorUserId)   REFERENCES Users(Id),
 	CONSTRAINT FK_SponsoredCollaborators_Sponsored FOREIGN KEY (SponsoredUserId) REFERENCES Users(Id),
 	CONSTRAINT UQ_SponsoredCollaborators           UNIQUE (SponsorUserId, SponsoredUserId)
@@ -147,7 +148,23 @@ CREATE TABLE SponsoredCollaborators (
 CREATE INDEX IX_SponsoredCollaborators_Sponsor   ON SponsoredCollaborators(SponsorUserId);
 CREATE INDEX IX_SponsoredCollaborators_Sponsored ON SponsoredCollaborators(SponsoredUserId);
 
--- 7. AppVersions
+-- 7. PendingSponsorInvitations
+CREATE TABLE PendingSponsorInvitations (
+    Id            INT           IDENTITY(1,1) PRIMARY KEY,
+    SponsorUserId INT           NOT NULL,
+    InvitedEmail  NVARCHAR(256) NOT NULL,
+    Token         NVARCHAR(64)  NOT NULL,
+    CreatedAt     DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+    ExpiresAt     DATETIME2     NOT NULL,
+    CONSTRAINT FK_PendingSponsorInvitations_Sponsor FOREIGN KEY (SponsorUserId) REFERENCES Users(Id),
+    CONSTRAINT UQ_PendingSponsorInvitations_Token UNIQUE (Token),
+    CONSTRAINT UQ_PendingSponsorInvitations_SponsorEmail UNIQUE (SponsorUserId, InvitedEmail)
+);
+
+CREATE INDEX IX_PendingSponsorInvitations_Sponsor ON PendingSponsorInvitations(SponsorUserId);
+CREATE INDEX IX_PendingSponsorInvitations_Email   ON PendingSponsorInvitations(InvitedEmail);
+
+-- 8. AppVersions
 CREATE TABLE AppVersions (
 	Id         INT           IDENTITY(1,1) PRIMARY KEY,
 	Version    NVARCHAR(20)  NOT NULL,

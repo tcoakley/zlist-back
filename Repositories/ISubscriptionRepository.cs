@@ -23,6 +23,8 @@ namespace zListBack.Repositories
         Task RevokeSharedListAccess(int sponsorUserId, int collaboratorUserId);
         Task RevokeAllSharedListAccess(int sponsorUserId);
         Task<User?> GetSponsor(int sponsoredUserId);
+        Task<(int SponsorUserId, bool IsFreeSeat)?> GetActiveSponsorRecord(int sponsoredUserId);
+        Task<int?> GetActiveFreeSeatSponsorId(int sponsoredUserId);
         Task<IEnumerable<SponsoredCollaboratorModel>> GetSponsoredCollaborators(int sponsorUserId);
         Task<bool> NeedsDowngradeSelection(int userId);
         Task<User?> GetUserByEmail(string email);
