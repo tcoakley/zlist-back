@@ -270,6 +270,77 @@ namespace zListBack.Repositories
             await _connection.ExecuteAsync(sql, new { UserId = userId });
         }
 
+        public async Task<Result<bool>> DeleteAccountAsync(int userId, string email)
+        {
+            try
+            {
+                using var transaction = _connection.BeginTransaction();
+
+                // Capture owned list IDs before touching UserLists
+                var ownedListIds = (await _connection.QueryAsync<int>(
+                    "SELECT ListId FROM UserLists WHERE UserId = @UserId AND IsOwner = 1",
+                    new { UserId = userId }, transaction)).AsList();
+
+                if (ownedListIds.Count > 0)
+                {
+                    var p = new { ListIds = ownedListIds };
+
+                    await _connection.ExecuteAsync(@"
+                        DELETE lri FROM ListRunItems lri
+                        INNER JOIN ListRuns lr ON lr.Id = lri.ListRunId
+                        WHERE lr.ListId IN @ListIds", p, transaction);
+
+                    await _connection.ExecuteAsync(
+                        "DELETE FROM ListRuns WHERE ListId IN @ListIds", p, transaction);
+
+                    await _connection.ExecuteAsync(
+                        "DELETE FROM ListItems WHERE ListId IN @ListIds", p, transaction);
+
+                    await _connection.ExecuteAsync(
+                        "DELETE FROM ListInvitations WHERE ListId IN @ListIds", p, transaction);
+
+                    await _connection.ExecuteAsync(
+                        "DELETE FROM UserLists WHERE ListId IN @ListIds", p, transaction);
+
+                    await _connection.ExecuteAsync(
+                        "DELETE FROM Lists WHERE Id IN @ListIds", p, transaction);
+                }
+
+                // Remove user from lists they were a non-owner member of
+                await _connection.ExecuteAsync(
+                    "DELETE FROM UserLists WHERE UserId = @UserId",
+                    new { UserId = userId }, transaction);
+
+                await _connection.ExecuteAsync(
+                    "DELETE FROM SponsoredCollaborators WHERE SponsorUserId = @UserId OR SponsoredUserId = @UserId",
+                    new { UserId = userId }, transaction);
+
+                await _connection.ExecuteAsync(
+                    "DELETE FROM ListInvitations WHERE LOWER(InvitedEmail) = LOWER(@Email)",
+                    new { Email = email }, transaction);
+
+                await _connection.ExecuteAsync(
+                    "DELETE FROM RefreshTokens WHERE UserId = @UserId",
+                    new { UserId = userId }, transaction);
+
+                await _connection.ExecuteAsync(
+                    "DELETE FROM UserPaymentHistory WHERE UserId = @UserId",
+                    new { UserId = userId }, transaction);
+
+                await _connection.ExecuteAsync(
+                    "DELETE FROM Users WHERE Id = @UserId",
+                    new { UserId = userId }, transaction);
+
+                transaction.Commit();
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DeleteAccountAsync failed. UserId={UserId}", userId);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         private string GeneratePassword()
         {
             const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

@@ -796,5 +796,11 @@ namespace zListBack.Services
                 CancelAtPeriodEnd = true
             });
         }
+
+        public async Task CancelSubscriptionImmediately(string subscriptionId)
+        {
+            var svc = new StripeSubscriptionSvc();
+            await svc.CancelAsync(subscriptionId);
+        }
     }
 }

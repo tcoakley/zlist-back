@@ -12,5 +12,6 @@ namespace zListBack.Repositories
         Task<Result<string>> GenerateResetPassword(string email);
         Task UpdateLastActiveAt(int userId);
         Task ClearInactivityNotice(int userId);
+        Task<Result<bool>> DeleteAccountAsync(int userId, string email);
     }
 }

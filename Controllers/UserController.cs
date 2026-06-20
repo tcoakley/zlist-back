@@ -57,5 +57,15 @@ namespace zListBack.Controllers
                 ? Result<UserModel>.Ok(UserMapper.ToDto(result.Model!))
                 : Result<UserModel>.Fail(result.Message ?? "Failed to update user.");
         }
+
+        [HttpDelete("DeleteAccount")]
+        public async Task<Result<bool>> DeleteAccount()
+        {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out int userId))
+                return Result<bool>.Fail("User ID not found.");
+
+            return await _authService.DeleteAccount(userId);
+        }
     }
 }

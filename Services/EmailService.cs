@@ -722,6 +722,39 @@ namespace zListBack.Services
             }
         }
 
+        public virtual async Task<Result<bool>> SendAccountDeletedEmail(string recipientEmail, string firstName)
+        {
+            try
+            {
+                using var client = new SmtpClient(_smtpServer, _smtpPort);
+                client.Credentials = new NetworkCredential(_senderEmail, _senderPassword);
+                client.EnableSsl = true;
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_senderEmail),
+                    Subject = "Your zChecklist account has been deleted",
+                    Body = $@"
+                        <p>Hi {firstName},</p>
+                        <p>Your zChecklist account has been permanently deleted. All of your lists, run history,
+                        and account data have been removed from our system.</p>
+                        <p>If you had an active subscription, it has been cancelled and you will not be charged again.</p>
+                        <p>We're sorry to see you go. If you ever want to come back, you're always welcome to
+                        create a new account at <a href=""{_baseUrl}/signup"">{_baseUrl}</a>.</p>
+                        <p>— The zChecklist Team</p>",
+                    IsBodyHtml = true
+                };
+                mailMessage.To.Add(recipientEmail);
+                await client.SendMailAsync(mailMessage);
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SendAccountDeletedEmail failed. RecipientEmail={RecipientEmail}", recipientEmail);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         public virtual async Task<Result<string>> SendForgotPasswordEmail(string recipientEmail)
         {
             try

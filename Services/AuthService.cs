@@ -101,5 +101,34 @@ namespace zListBack.Services
             dto.IsPremium = await _subscriptionService.IsPremium(userId);
             return Result<UserModel>.Ok(dto);
         }
+
+        public async Task<Result<bool>> DeleteAccount(int userId)
+        {
+            var userResult = await _userRepository.GetUserAsync(userId);
+            if (!userResult.Success || userResult.Model == null)
+                return Result<bool>.Fail("User not found.");
+
+            var user = userResult.Model;
+
+            // Delete from DB first so the Stripe webhook (fired by CancelSubscriptionImmediately)
+            // finds no user and skips the subscription-cancelled email.
+            var result = await _userRepository.DeleteAccountAsync(userId, user.Email);
+            if (!result.Success) return result;
+
+            if (!string.IsNullOrEmpty(user.StripeSubscriptionId))
+            {
+                try
+                {
+                    await _subscriptionService.CancelSubscriptionImmediately(user.StripeSubscriptionId);
+                }
+                catch (Exception ex)
+                {
+                    _ = ex;
+                }
+            }
+
+            _ = _emailService.SendAccountDeletedEmail(user.Email, user.FirstName ?? user.Email);
+            return result;
+        }
     }
 }
