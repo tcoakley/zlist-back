@@ -18,5 +18,7 @@ namespace zListBack.Dtos
         public string? Token { get; set; }
         [System.Text.Json.Serialization.JsonIgnore]
         public bool RequiresPremiumEmail { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? ListName { get; set; }
     }
 }

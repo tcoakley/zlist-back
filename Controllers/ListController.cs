@@ -5,7 +5,6 @@ using System.Security.Claims;
 using zListBack.Dtos;
 using zListBack.Hubs;
 using zListBack.Models;
-using zListBack.Repositories;
 using zListBack.Services;
 
 namespace zListBack.Controllers
@@ -16,19 +15,14 @@ namespace zListBack.Controllers
     public class ListController : ControllerBase
     {
         private readonly ListService _listService;
-        private readonly EmailService _emailService;
         private readonly IHubContext<RunHub> _hub;
         private readonly string _appBaseUrl;
         private readonly int _userId;
 
-        private readonly IUserRepository _userRepo;
-
-        public ListController(ListService listService, EmailService emailService, IHubContext<RunHub> hub, IConfiguration configuration, IHttpContextAccessor httpContextAccessor, IUserRepository userRepo)
+        public ListController(ListService listService, IHubContext<RunHub> hub, IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
         {
             _listService = listService;
-            _emailService = emailService;
             _hub = hub;
-            _userRepo = userRepo;
             _appBaseUrl = configuration["AppSettings:BaseUrl"] ?? "https://localhost:4200";
 
             var userIdClaim = httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -113,7 +107,6 @@ namespace zListBack.Controllers
         [HttpPut("SetListRunItemCompletion/{runItemId}")]
         public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, [FromBody] ToggleRunItemRequest request)
         {
-            await _userRepo.UpdateLastActiveAt(_userId);
             var result = await _listService.SetListRunItemCompletion(runItemId, request.IsComplete, _userId);
             if (result.Success)
             {
@@ -134,8 +127,7 @@ namespace zListBack.Controllers
         [HttpPost("CreateListRun/{listId}")]
         public async Task<Result<ListRunModel>> CreateListRun(int listId)
         {
-            await _userRepo.UpdateLastActiveAt(_userId);
-            return await _listService.CreateListRun(listId);
+            return await _listService.CreateListRun(listId, _userId);
         }
 
         [HttpGet("GetListRunHistory/{listId}")]
@@ -167,30 +159,8 @@ namespace zListBack.Controllers
         [HttpPost("{listId}/invite")]
         public async Task<Result<InviteResultModel>> InviteToList(int listId, [FromBody] InviteRequestModel request)
         {
-            var listResult = await _listService.GetList(listId, _userId);
-            if (!listResult.Success || listResult.Model == null)
-                return Result<InviteResultModel>.Fail("List not found.");
-
-            var inviteResult = await _listService.InviteToList(listId, _userId, request.Email, request.SponsorConfirmed);
-            if (!inviteResult.Success || inviteResult.Model == null)
-                return Result<InviteResultModel>.Fail(inviteResult.Message ?? "Failed to create invitation.");
-
-            // Sponsorship confirmation needed — return prompt to frontend without sending email
-            if (inviteResult.Model.RequiresSponsor)
-                return Result<InviteResultModel>.Ok(inviteResult.Model);
-
-            // Send the appropriate email based on whether premium is required
-            if (inviteResult.Model.RequiresPremiumEmail)
-            {
-                var inviterName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Someone";
-                await _emailService.SendPremiumRequiredInvitationEmail(request.Email, listResult.Model.ListName, inviterName);
-            }
-            else
-            {
-                await _emailService.SendInvitationEmail(request.Email, listResult.Model.ListName, _appBaseUrl, inviteResult.Model.Token!);
-            }
-
-            return Result<InviteResultModel>.Ok(inviteResult.Model);
+            var inviterName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Someone";
+            return await _listService.InviteToListAndNotify(listId, _userId, request.Email, request.SponsorConfirmed, _appBaseUrl, inviterName);
         }
 
         [HttpDelete("{listId}/members/{memberId}")]

@@ -25,6 +25,17 @@ namespace zListBack.Controllers
             return await _listService.GetListInvitation(token);
         }
 
+        [HttpGet("pending")]
+        [Authorize]
+        public async Task<Result<IEnumerable<UserPendingInvitationModel>>> GetPendingInvitations()
+        {
+            var email = HttpContext.User?.FindFirst(ClaimTypes.Email)?.Value;
+            if (string.IsNullOrEmpty(email))
+                return Result<IEnumerable<UserPendingInvitationModel>>.Fail("User email not found in token.");
+
+            return await _listService.GetPendingInvitationsForUser(email);
+        }
+
         [HttpPost("{token}/accept")]
         [Authorize]
         public async Task<Result<bool>> AcceptInvitation(string token)
@@ -34,6 +45,13 @@ namespace zListBack.Controllers
                 return Result<bool>.Fail("User not authenticated.");
 
             return await _listService.AcceptListInvitation(token, userId);
+        }
+
+        [HttpDelete("{token}")]
+        [Authorize]
+        public async Task<Result<bool>> DeclineInvitation(string token)
+        {
+            return await _listService.DeclineListInvitation(token);
         }
     }
 }

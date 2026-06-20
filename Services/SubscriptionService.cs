@@ -84,11 +84,13 @@ namespace zListBack.Services
             }
         }
 
-        // Starts a 7-day grace for the removed collaborator, removes the Stripe seat, and notifies the collaborator.
+        // Starts a 7-day grace for the removed collaborator, removes them from all sponsor-owned lists immediately,
+        // removes the Stripe seat, and notifies the collaborator.
         public async Task RemoveSponsoredCollaborator(int sponsorUserId, int sponsoredUserId)
         {
             var graceUntil = DateTime.UtcNow.AddDays(GraceDays);
             await _subscriptionRepo.StartSponsorshipGrace(sponsorUserId, sponsoredUserId, graceUntil);
+            await _subscriptionRepo.RevokeSharedListAccess(sponsorUserId, sponsoredUserId);
             await RemoveStripeCollaboratorSeat(sponsorUserId);
 
             var collaboratorResult = await _userRepo.GetUserAsync(sponsoredUserId);

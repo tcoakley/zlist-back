@@ -1157,6 +1157,54 @@ namespace zListBack.Repositories
             }
         }
 
+        public async Task<Result<IEnumerable<Dtos.UserPendingInvitationModel>>> GetPendingInvitationsForUser(string email)
+        {
+            try
+            {
+                const string sql = @"
+                    SELECT
+                        li.Token,
+                        li.ListId,
+                        l.ListName,
+                        RTRIM(ISNULL(u.FirstName, '') + ' ' + ISNULL(u.LastName, '')) AS InvitedByName,
+                        li.RequiresPremium,
+                        li.ExpiresAt
+                    FROM ListInvitations li
+                    INNER JOIN Lists l  ON l.Id  = li.ListId
+                    INNER JOIN Users u  ON u.Id  = li.InvitedByUserId
+                    WHERE LOWER(li.InvitedEmail) = LOWER(@Email)
+                      AND li.Status = 'pending'
+                      AND li.ExpiresAt > GETUTCDATE()
+                    ORDER BY li.CreatedAt DESC;";
+
+                var rows = await _connection.QueryAsync<Dtos.UserPendingInvitationModel>(sql, new { Email = email });
+                return Result<IEnumerable<Dtos.UserPendingInvitationModel>>.Ok(rows);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetPendingInvitationsForUser failed. Email={Email}", email);
+                return Result<IEnumerable<Dtos.UserPendingInvitationModel>>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> DeclineListInvitation(string token)
+        {
+            try
+            {
+                const string sql = @"
+                    UPDATE ListInvitations SET Status = 'declined'
+                    WHERE Token = @Token AND Status = 'pending';";
+
+                await _connection.ExecuteAsync(sql, new { Token = token });
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DeclineListInvitation failed. Token={Token}", token);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         public async Task<Result<bool>> RemoveListMember(int listId, int requestingUserId, int memberUserId)
         {
             try

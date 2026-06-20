@@ -240,6 +240,20 @@ public class SubscriptionServiceTests
         ), Times.Once);
     }
 
+    [Fact]
+    public async Task RemoveSponsoredCollaborator_RevokesListAccessImmediately()
+    {
+        var (svc, subRepo, userRepo, _) = Build();
+        subRepo.Setup(r => r.StartSponsorshipGrace(1, 2, It.IsAny<DateTime>())).Returns(Task.CompletedTask);
+        subRepo.Setup(r => r.RevokeSharedListAccess(1, 2)).Returns(Task.CompletedTask);
+        userRepo.Setup(r => r.GetUserAsync(1)).ReturnsAsync(Result<User>.Ok(MakeUser(1, "premium")));
+        userRepo.Setup(r => r.GetUserAsync(2)).ReturnsAsync(Result<User>.Fail("not found"));
+
+        await svc.RemoveSponsoredCollaborator(1, 2);
+
+        subRepo.Verify(r => r.RevokeSharedListAccess(1, 2), Times.Once);
+    }
+
     // === FinalizeCollaboratorDowngrade ========================================
 
     [Fact]

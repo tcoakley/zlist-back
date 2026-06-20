@@ -12,13 +12,17 @@ namespace zListBack.Services
         private readonly SubscriptionService _subscriptionService;
         private readonly ISubscriptionRepository _subscriptionRepository;
         private readonly ILogger<ListService> _logger;
+        private readonly EmailService _emailService;
+        private readonly IUserRepository _userRepo;
 
-        public ListService(ListRepository listRepository, SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepository, ILogger<ListService> logger)
+        public ListService(ListRepository listRepository, SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepository, ILogger<ListService> logger, EmailService emailService, IUserRepository userRepo)
         {
             _listRepository = listRepository;
             _subscriptionService = subscriptionService;
             _subscriptionRepository = subscriptionRepository;
             _logger = logger;
+            _emailService = emailService;
+            _userRepo = userRepo;
         }
 
         public async Task<Result<ListModel>> AddList(ListModel listModel, int userId)
@@ -72,8 +76,9 @@ namespace zListBack.Services
                 : Result<List<ListModel>>.Fail(result.Message ?? "Failed to retrieve lists.");
         }
 
-        public async Task<Result<ListRunModel>> CreateListRun(int listId)
+        public async Task<Result<ListRunModel>> CreateListRun(int listId, int userId)
         {
+            await _userRepo.UpdateLastActiveAt(userId);
             var result = await _listRepository.CreateListRun(listId);
             return result.Success && result.Model != null
                 ? Result<ListRunModel>.Ok(ListRunMapper.ToModel(result.Model))
@@ -87,6 +92,7 @@ namespace zListBack.Services
 
         public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
         {
+            await _userRepo.UpdateLastActiveAt(userId);
             return await _listRepository.SetListRunItemCompletion(runItemId, isComplete, userId);
         }
 
@@ -207,7 +213,7 @@ namespace zListBack.Services
 
             // If sponsorship is needed and caller hasn't confirmed yet, return the prompt signal
             if (requiresSponsor && sponsorConfirmed == null)
-                return Result<InviteResultModel>.Ok(new InviteResultModel { RequiresSponsor = true });
+                return Result<InviteResultModel>.Ok(new InviteResultModel { RequiresSponsor = true, ListName = listResult.Model.ListName });
 
             // Create sponsorship if confirmed
             bool isPremiumRequired = false;
@@ -246,10 +252,25 @@ namespace zListBack.Services
                 RequiresSponsor = false,
                 RequiresPremiumEmail = isPremiumRequired,
                 Token = token,
+                ListName = listResult.Model.ListName,
                 Message = isPremiumRequired
                     ? "Invitation sent. The recipient will need a Premium account to accept."
                     : null
             });
+        }
+
+        public async Task<Result<InviteResultModel>> InviteToListAndNotify(int listId, int userId, string email, bool? sponsorConfirmed, string appBaseUrl, string inviterName)
+        {
+            var result = await InviteToList(listId, userId, email, sponsorConfirmed);
+            if (!result.Success || result.Model == null || result.Model.RequiresSponsor)
+                return result;
+
+            if (result.Model.RequiresPremiumEmail)
+                await _emailService.SendPremiumRequiredInvitationEmail(email, result.Model.ListName ?? string.Empty, inviterName);
+            else
+                await _emailService.SendInvitationEmail(email, result.Model.ListName ?? string.Empty, appBaseUrl, result.Model.Token!);
+
+            return result;
         }
 
         public async Task<Result<ListInvitationInfoModel>> GetListInvitation(string token)
@@ -276,6 +297,16 @@ namespace zListBack.Services
         public async Task<Result<bool>> AcceptListInvitation(string token, int userId)
         {
             return await _listRepository.AcceptListInvitation(token, userId);
+        }
+
+        public async Task<Result<IEnumerable<Dtos.UserPendingInvitationModel>>> GetPendingInvitationsForUser(string email)
+        {
+            return await _listRepository.GetPendingInvitationsForUser(email);
+        }
+
+        public async Task<Result<bool>> DeclineListInvitation(string token)
+        {
+            return await _listRepository.DeclineListInvitation(token);
         }
 
         public async Task<Result<bool>> RemoveListMember(int listId, int requestingUserId, int memberUserId)
