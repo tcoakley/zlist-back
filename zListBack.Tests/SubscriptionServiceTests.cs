@@ -229,6 +229,8 @@ public class SubscriptionServiceTests
         subRepo.Setup(r => r.StartSponsorshipGrace(1, 2, It.IsAny<DateTime>())).Returns(Task.CompletedTask);
         // Stripe seat removal fetches the sponsor — no StripeSubscriptionId means early return
         userRepo.Setup(r => r.GetUserAsync(1)).ReturnsAsync(Result<User>.Ok(MakeUser(1, "premium")));
+        // Email lookup for collaborator — return failure so email path is skipped (this test doesn't verify email)
+        userRepo.Setup(r => r.GetUserAsync(2)).ReturnsAsync(Result<User>.Fail("not found"));
 
         await svc.RemoveSponsoredCollaborator(1, 2);
 

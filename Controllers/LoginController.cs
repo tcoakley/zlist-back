@@ -1,10 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using zListBack.Services;
 using zListBack.Repositories;
 using zListBack.Models;
 using zListBack.Dtos;
-using zListBack.Utils; 
-using Microsoft.AspNetCore.Http; 
+using zListBack.Utils;
 
 namespace zListBack.Controllers
 {
@@ -15,20 +14,20 @@ namespace zListBack.Controllers
         private readonly IConfiguration _configuration;
         private readonly IUserRepository _userRepository;
         private readonly EmailService _emailService;
-        private readonly RefreshTokenRepository _refreshTokenRepository;
+        private readonly AuthService _authService;
         private readonly SubscriptionService _subscriptionService;
 
         public LoginController(
             IConfiguration configuration,
             IUserRepository userRepository,
             EmailService emailService,
-            RefreshTokenRepository refreshTokenRepository,
+            AuthService authService,
             SubscriptionService subscriptionService)
         {
             _configuration = configuration;
             _userRepository = userRepository;
             _emailService = emailService;
-            _refreshTokenRepository = refreshTokenRepository;
+            _authService = authService;
             _subscriptionService = subscriptionService;
         }
 
@@ -37,55 +36,28 @@ namespace zListBack.Controllers
         {
             var result = await _userRepository.CheckLoginAsync(request.Email, request.Password);
             if (!result.Success)
-            {
                 return BadRequest(result.Message);
-            }
 
             var user = result.Model!;
             await _userRepository.UpdateLastActiveAt(user.Id);
+
             var accessToken = JwtTokenGenerator.GenerateToken(user, _configuration);
-
-
-            var refreshTokenString = TokenHelper.GenerateRefreshToken();
-            var refreshToken = new RefreshToken
-            {
-                UserId = user.Id,
-                Token = refreshTokenString,
-                ExpiresAt = DateTime.UtcNow.AddYears(5),
-                CreatedAt = DateTime.UtcNow,
-                Revoked = false
-            };
-
-            await _refreshTokenRepository.AddAsync(refreshToken);
-
-            var cookieOptions = new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = true, 
-                SameSite = SameSiteMode.Strict,
-                Expires = refreshToken.ExpiresAt
-            };
-            Response.Cookies.Append("refreshToken", refreshTokenString, cookieOptions);
+            var (refreshTokenString, expiresAt) = await _authService.CreateRefreshToken(user.Id);
+            SetRefreshTokenCookie(refreshTokenString, expiresAt);
 
             var userDto = UserMapper.ToDto(user);
             userDto.IsPremium = await _subscriptionService.IsPremium(user.Id);
 
-            return Ok(Result<object>.Ok(new
-            {
-                Token = accessToken,
-                User = userDto
-            }));
+            return Ok(Result<object>.Ok(new { Token = accessToken, User = userDto }));
         }
 
         [HttpPost("forgotPassword")]
         public async Task<Result<string>> ForgotPassword([FromBody] ForgotPasswordModel model)
         {
-            var email = model.Email;
-            if (string.IsNullOrWhiteSpace(email))
-            {
+            if (string.IsNullOrWhiteSpace(model.Email))
                 return Result<string>.Fail("Email is required.");
-            }
-            return await _emailService.SendForgotPasswordEmail(email);
+
+            return await _emailService.SendForgotPasswordEmail(model.Email);
         }
 
         [HttpPost("refresh")]
@@ -94,43 +66,26 @@ namespace zListBack.Controllers
             if (!Request.Cookies.TryGetValue("refreshToken", out var refreshTokenString))
                 return Unauthorized("Refresh token not found.");
 
-            var refreshToken = await _refreshTokenRepository.GetByTokenAsync(refreshTokenString);
-            if (refreshToken == null || refreshToken.ExpiresAt < DateTime.UtcNow || refreshToken.Revoked)
+            var rotated = await _authService.RotateRefreshToken(refreshTokenString);
+            if (rotated == null)
                 return Unauthorized("Invalid or expired refresh token.");
 
-            var user = refreshToken.User;
-            if (user == null)
-                return Unauthorized("User not found.");
-
+            var (user, newTokenString, expiresAt) = rotated.Value;
             var newAccessToken = JwtTokenGenerator.GenerateToken(user, _configuration);
+            SetRefreshTokenCookie(newTokenString, expiresAt);
 
-            var newRefreshTokenString = TokenHelper.GenerateRefreshToken();
-            var newRefreshToken = new RefreshToken
-            {
-                UserId = user.Id,
-                Token = newRefreshTokenString,
-                ExpiresAt = DateTime.UtcNow.AddYears(5),
-                CreatedAt = DateTime.UtcNow,
-                Revoked = false
-            };
+            return Ok(Result<object>.Ok(new { Token = newAccessToken }));
+        }
 
-            await _refreshTokenRepository.InvalidateAsync(refreshTokenString);
-            await _refreshTokenRepository.AddAsync(newRefreshToken);
-
-            var cookieOptions = new CookieOptions
+        private void SetRefreshTokenCookie(string token, DateTime expiresAt)
+        {
+            Response.Cookies.Append("refreshToken", token, new CookieOptions
             {
                 HttpOnly = true,
                 Secure = true,
                 SameSite = SameSiteMode.Strict,
-                Expires = newRefreshToken.ExpiresAt
-            };
-            Response.Cookies.Append("refreshToken", newRefreshTokenString, cookieOptions);
-
-            return Ok(Result<object>.Ok(new
-            {
-                Token = newAccessToken
-            }));
+                Expires = expiresAt
+            });
         }
-
     }
 }

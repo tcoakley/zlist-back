@@ -17,17 +17,15 @@ namespace zListBack.Controllers
         private readonly ISubscriptionRepository _subscriptionRepo;
         private readonly IUserRepository _userRepo;
         private readonly ListRepository _listRepo;
-        private readonly EmailService _emailService;
 
         private int UserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-        public SubscriptionController(SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepo, IUserRepository userRepo, ListRepository listRepo, EmailService emailService)
+        public SubscriptionController(SubscriptionService subscriptionService, ISubscriptionRepository subscriptionRepo, IUserRepository userRepo, ListRepository listRepo)
         {
             _subscriptionService = subscriptionService;
             _subscriptionRepo = subscriptionRepo;
             _userRepo = userRepo;
             _listRepo = listRepo;
-            _emailService = emailService;
         }
 
         // === Account status ==========================================================
@@ -35,50 +33,14 @@ namespace zListBack.Controllers
         [HttpGet("status")]
         public async Task<Result<SubscriptionStatusModel>> GetStatus()
         {
-            var userId = UserId;
-            var userResult = await _userRepo.GetUserAsync(userId);
-            if (!userResult.Success || userResult.Model == null)
-                return Result<SubscriptionStatusModel>.Fail("User not found.");
-
-            var user = userResult.Model;
-            var isPremium = await _subscriptionService.IsPremium(userId);
-            var isSponsored = isPremium && user.Subscription != "premium";
-            var ownedCount = await _subscriptionRepo.GetOwnedListCount(userId);
-
-            string? sponsorName = null;
-            if (isSponsored)
-            {
-                var sponsor = await _subscriptionRepo.GetSponsor(userId);
-                if (sponsor != null)
-                {
-                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName}";
-                    sponsorName = $"{sponsor.FirstName}{last}".Trim();
-                }
-            }
-
-            return Result<SubscriptionStatusModel>.Ok(new SubscriptionStatusModel
-            {
-                Subscription = user.Subscription,
-                SubscriptionSource = user.SubscriptionSource,
-                ExpiresAt = user.SubscriptionExpiresAt,
-                GracePeriodUntil = user.GracePeriodUntil,
-                CancellationScheduledAt = user.CancellationScheduledAt,
-                IsPremium = isPremium,
-                IsSponsored = isSponsored,
-                SponsorName = sponsorName,
-                OwnedListCount = ownedCount,
-                OwnedListLimit = isPremium ? -1 : 2
-            });
+            var status = await _subscriptionService.GetSubscriptionStatus(UserId);
+            return status != null
+                ? Result<SubscriptionStatusModel>.Ok(status)
+                : Result<SubscriptionStatusModel>.Fail("User not found.");
         }
 
         // === Upgrade / Cancel ========================================================
 
-        /// <summary>
-        /// Upgrades the current user from free to premium.
-        /// TODO: Stripe — this stub simulates a successful subscription.
-        /// Replace with a real Stripe Checkout session redirect or PaymentIntent flow
-        /// once the Stripe account and price IDs are configured.
-        /// </summary>
         [HttpPost("upgrade")]
         public async Task<Result<UpgradeResponse>> Upgrade()
         {
@@ -93,9 +55,6 @@ namespace zListBack.Controllers
             return await _subscriptionService.Upgrade(userId, userResult.Model.Email);
         }
 
-        /// <summary>
-        /// Cancels the current user's premium subscription.
-        /// </summary>
         [HttpPost("cancel")]
         public async Task<Result<bool>> Cancel()
         {
@@ -135,25 +94,20 @@ namespace zListBack.Controllers
         [HttpPost("select-lists")]
         public async Task<Result<bool>> SelectLists([FromBody] SelectListsRequest request)
         {
-            var userId = UserId;
             if (request.KeepListIds.Count > 2)
                 return Result<bool>.Fail("You can only keep 2 lists on the free plan.");
 
-            await _listRepo.ArchiveUnselectedLists(userId, request.KeepListIds);
+            await _listRepo.ArchiveUnselectedLists(UserId, request.KeepListIds);
             return Result<bool>.Ok(true);
         }
 
         // === Sponsored collaborators =================================================
 
-        /// <summary>
-        /// Returns all users the current user is sponsoring (free slot + paid seats).
-        /// </summary>
         [HttpGet("collaborators")]
         public async Task<Result<IEnumerable<SponsoredCollaboratorModel>>> GetCollaborators()
         {
             var userId = UserId;
-            var isPremium = await _subscriptionService.IsPremium(userId);
-            if (!isPremium)
+            if (!await _subscriptionService.IsPremium(userId))
                 return Result<IEnumerable<SponsoredCollaboratorModel>>.Fail("Premium subscription required.");
 
             var collaborators = await _subscriptionService.GetSponsoredCollaborators(userId);
@@ -164,22 +118,17 @@ namespace zListBack.Controllers
         public async Task<Result<bool>> AddCollaborator([FromBody] AddCollaboratorRequest request)
         {
             var sponsorId = UserId;
-            var isPremium = await _subscriptionService.IsPremium(sponsorId);
-            if (!isPremium)
+            if (!await _subscriptionService.IsPremium(sponsorId))
                 return Result<bool>.Fail("Premium subscription required to sponsor collaborators.");
 
             return await _subscriptionService.AddFreeCollaboratorByEmail(sponsorId, request.Email);
         }
 
-        /// <summary>
-        /// Returns pending signup invitations sent by the current user for the free collaborator slot.
-        /// </summary>
         [HttpGet("collaborators/pending")]
         public async Task<Result<IEnumerable<PendingSponsorInvitationModel>>> GetPendingInvitations()
         {
             var userId = UserId;
-            var isPremium = await _subscriptionService.IsPremium(userId);
-            if (!isPremium)
+            if (!await _subscriptionService.IsPremium(userId))
                 return Result<IEnumerable<PendingSponsorInvitationModel>>.Fail("Premium subscription required.");
 
             var pending = await _subscriptionService.GetPendingSponsorInvitations(userId);
@@ -192,16 +141,11 @@ namespace zListBack.Controllers
             return await _subscriptionService.CancelPendingSponsorInvitation(UserId, Uri.UnescapeDataString(email));
         }
 
-        /// <summary>
-        /// Pre-checks whether an email address can be added as a paid collaborator seat.
-        /// Returns premium status information so the frontend can show appropriate warnings.
-        /// </summary>
         [HttpGet("collaborators/check")]
         public async Task<Result<CollaboratorCheckModel>> CheckCollaborator([FromQuery] string email)
         {
             var userId = UserId;
-            var isPremium = await _subscriptionService.IsPremium(userId);
-            if (!isPremium)
+            if (!await _subscriptionService.IsPremium(userId))
                 return Result<CollaboratorCheckModel>.Fail("Premium subscription required.");
 
             var check = await _subscriptionService.CheckCollaboratorPremiumStatus(userId, email);
@@ -212,56 +156,29 @@ namespace zListBack.Controllers
         public async Task<Result<bool>> AddPaidCollaborator([FromBody] AddCollaboratorRequest request)
         {
             var sponsorId = UserId;
-            var isPremium = await _subscriptionService.IsPremium(sponsorId);
-            if (!isPremium)
+            if (!await _subscriptionService.IsPremium(sponsorId))
                 return Result<bool>.Fail("Premium subscription required.");
 
             return await _subscriptionService.AddPaidCollaboratorByEmail(sponsorId, request.Email);
         }
 
-        /// <summary>
-        /// Removes a sponsored collaborator. Starts a 7-day grace period before access is revoked.
-        /// TODO: Stripe — RemoveStripeCollaboratorSeat must be called (and confirmed) before
-        /// or alongside the grace period start. The stub currently skips the Stripe call.
-        /// </summary>
         [HttpDelete("collaborators/{collaboratorUserId:int}")]
         public async Task<Result<bool>> RemoveCollaborator(int collaboratorUserId)
         {
             var sponsorId = UserId;
 
-            var isPremium = await _subscriptionService.IsPremium(sponsorId);
-            if (!isPremium)
+            if (!await _subscriptionService.IsPremium(sponsorId))
                 return Result<bool>.Fail("Premium subscription required.");
 
-            var isSponsored = await _subscriptionService.IsAlreadySponsored(sponsorId, collaboratorUserId);
-            if (!isSponsored)
+            if (!await _subscriptionService.IsAlreadySponsored(sponsorId, collaboratorUserId))
                 return Result<bool>.Fail("That user is not one of your sponsored collaborators.");
 
-            var graceUntil = DateTime.UtcNow.AddDays(7);
             await _subscriptionService.RemoveSponsoredCollaborator(sponsorId, collaboratorUserId);
-
-            var collaboratorResult = await _userRepo.GetUserAsync(collaboratorUserId);
-            var sponsorResult = await _userRepo.GetUserAsync(sponsorId);
-            if (collaboratorResult.Success && collaboratorResult.Model != null &&
-                sponsorResult.Success && sponsorResult.Model != null)
-            {
-                var collaborator = collaboratorResult.Model;
-                var sponsor = sponsorResult.Model;
-                var sponsorName = $"{sponsor.FirstName} {sponsor.LastName}".Trim();
-                var collaboratorFirstName = collaborator.FirstName ?? collaborator.Email;
-                _ = _emailService.SendCollaboratorRemovedEmail(collaborator.Email, collaboratorFirstName, sponsorName, graceUntil);
-            }
-
             return Result<bool>.Ok(true);
         }
 
         // === Payment history =========================================================
 
-        /// <summary>
-        /// Returns the current user's payment history, recorded from Stripe webhook events.
-        /// TODO: Stripe — this table is populated by the invoice.payment_succeeded webhook
-        /// (POST /api/stripe/webhook). Until Stripe is wired, this will return an empty list.
-        /// </summary>
         [HttpGet("payment-history")]
         public async Task<Result<IEnumerable<UserPaymentHistory>>> GetPaymentHistory()
         {
@@ -279,54 +196,22 @@ namespace zListBack.Controllers
             var user = await _subscriptionRepo.GetUserByEmail(email);
             if (user == null) return Result<SubscriptionStatusModel>.Fail("No account found with that email.");
 
-            var isPremium = await _subscriptionService.IsPremium(user.Id);
-            var isSponsored = isPremium && user.Subscription != "premium";
-            var ownedCount = await _subscriptionRepo.GetOwnedListCount(user.Id);
-
-            string? sponsorName = null;
-            if (isSponsored)
-            {
-                var sponsor = await _subscriptionRepo.GetSponsor(user.Id);
-                if (sponsor != null)
-                {
-                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName}";
-                    sponsorName = $"{sponsor.FirstName}{last}".Trim();
-                }
-            }
-
-            return Result<SubscriptionStatusModel>.Ok(new SubscriptionStatusModel
-            {
-                Subscription = user.Subscription,
-                SubscriptionSource = user.SubscriptionSource,
-                ExpiresAt = user.SubscriptionExpiresAt,
-                GracePeriodUntil = user.GracePeriodUntil,
-                CancellationScheduledAt = user.CancellationScheduledAt,
-                IsPremium = isPremium,
-                IsSponsored = isSponsored,
-                SponsorName = sponsorName,
-                OwnedListCount = ownedCount,
-                OwnedListLimit = isPremium ? -1 : 2
-            });
+            var status = await _subscriptionService.GetSubscriptionStatus(user.Id);
+            return status != null
+                ? Result<SubscriptionStatusModel>.Ok(status)
+                : Result<SubscriptionStatusModel>.Fail("User not found.");
         }
 
         [HttpPost("admin/grant")]
         public async Task<Result<bool>> AdminGrantPremium([FromBody] AdminGrantPremiumRequest request)
         {
             if (!await IsAdmin()) return Result<bool>.Fail("Unauthorized.");
+
             var validSources = new[] { "gift", "admin" };
             if (!validSources.Contains(request.Source))
                 return Result<bool>.Fail("Invalid source. Use 'gift' or 'admin'.");
 
-            var user = await _subscriptionRepo.GetUserByEmail(request.Email);
-            if (user == null) return Result<bool>.Fail("No account found with that email.");
-
-            var result = await _subscriptionService.GrantPremium(request.Email, request.Source, request.ExpiresAt);
-            if (result.Success)
-            {
-                var firstName = user.FirstName ?? user.Email;
-                _ = _emailService.SendAdminGrantedEmail(user.Email, firstName, request.Source, request.ExpiresAt);
-            }
-            return result;
+            return await _subscriptionService.AdminGrantPremium(request.Email, request.Source, request.ExpiresAt);
         }
 
         [HttpPost("admin/revoke")]
@@ -334,16 +219,7 @@ namespace zListBack.Controllers
         {
             if (!await IsAdmin()) return Result<bool>.Fail("Unauthorized.");
 
-            var user = await _subscriptionRepo.GetUserByEmail(request.Email);
-            if (user == null) return Result<bool>.Fail("No account found with that email.");
-
-            var result = await _subscriptionService.RevokePremium(request.Email);
-            if (result.Success)
-            {
-                var firstName = user.FirstName ?? user.Email;
-                _ = _emailService.SendAdminRevokedEmail(user.Email, firstName);
-            }
-            return result;
+            return await _subscriptionService.AdminRevokePremium(request.Email);
         }
 
         private async Task<bool> IsAdmin()

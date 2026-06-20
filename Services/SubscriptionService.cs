@@ -84,12 +84,21 @@ namespace zListBack.Services
             }
         }
 
-        // Starts a 7-day grace for the removed collaborator, then removes the Stripe seat.
+        // Starts a 7-day grace for the removed collaborator, removes the Stripe seat, and notifies the collaborator.
         public async Task RemoveSponsoredCollaborator(int sponsorUserId, int sponsoredUserId)
         {
             var graceUntil = DateTime.UtcNow.AddDays(GraceDays);
             await _subscriptionRepo.StartSponsorshipGrace(sponsorUserId, sponsoredUserId, graceUntil);
             await RemoveStripeCollaboratorSeat(sponsorUserId);
+
+            var collaboratorResult = await _userRepo.GetUserAsync(sponsoredUserId);
+            var sponsorResult = await _userRepo.GetUserAsync(sponsorUserId);
+            if (collaboratorResult.Model != null && sponsorResult.Model != null)
+            {
+                var sponsorName = $"{sponsorResult.Model.FirstName} {sponsorResult.Model.LastName}".Trim();
+                var collaboratorFirstName = collaboratorResult.Model.FirstName ?? collaboratorResult.Model.Email;
+                _ = _emailService.SendCollaboratorRemovedEmail(collaboratorResult.Model.Email, collaboratorFirstName, sponsorName, graceUntil);
+            }
         }
 
         // Called after grace expires — deactivates the record and revokes list access if the free slot is taken.
@@ -514,6 +523,165 @@ namespace zListBack.Services
                 _logger.LogError(ex, "RevokePremium failed. Email={Email}", email);
                 return Result<bool>.Fail(ex.Message);
             }
+        }
+
+        // === Subscription status ======================================================
+
+        public async Task<SubscriptionStatusModel?> GetSubscriptionStatus(int userId)
+        {
+            var userResult = await _userRepo.GetUserAsync(userId);
+            if (!userResult.Success || userResult.Model == null) return null;
+
+            var user = userResult.Model;
+            var isPremium = await IsPremium(userId);
+            var isSponsored = isPremium && user.Subscription != "premium";
+            var ownedCount = await _subscriptionRepo.GetOwnedListCount(userId);
+
+            string? sponsorName = null;
+            if (isSponsored)
+            {
+                var sponsor = await _subscriptionRepo.GetSponsor(userId);
+                if (sponsor != null)
+                {
+                    var last = string.IsNullOrWhiteSpace(sponsor.LastName) ? "" : $" {sponsor.LastName}";
+                    sponsorName = $"{sponsor.FirstName}{last}".Trim();
+                }
+            }
+
+            return new SubscriptionStatusModel
+            {
+                Subscription = user.Subscription,
+                SubscriptionSource = user.SubscriptionSource,
+                ExpiresAt = user.SubscriptionExpiresAt,
+                GracePeriodUntil = user.GracePeriodUntil,
+                CancellationScheduledAt = user.CancellationScheduledAt,
+                IsPremium = isPremium,
+                IsSponsored = isSponsored,
+                SponsorName = sponsorName,
+                OwnedListCount = ownedCount,
+                OwnedListLimit = isPremium ? -1 : 2
+            };
+        }
+
+        // === Admin / Gift (with email notification) ===================================
+
+        public async Task<Result<bool>> AdminGrantPremium(string email, string source, DateTime? expiresAt)
+        {
+            try
+            {
+                var user = await _subscriptionRepo.GetUserByEmail(email);
+                if (user == null) return Result<bool>.Fail("No account found with that email.");
+
+                await _subscriptionRepo.SetUserSubscription(user.Id, "premium", source, expiresAt);
+                await _listRepo.RestoreArchivedLists(user.Id);
+
+                var firstName = user.FirstName ?? user.Email;
+                _ = _emailService.SendAdminGrantedEmail(user.Email, firstName, source, expiresAt);
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AdminGrantPremium failed. Email={Email}, Source={Source}", email, source);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<bool>> AdminRevokePremium(string email)
+        {
+            try
+            {
+                var user = await _subscriptionRepo.GetUserByEmail(email);
+                if (user == null) return Result<bool>.Fail("No account found with that email.");
+
+                await _subscriptionRepo.SetUserSubscription(user.Id, "free", "free", null);
+                await _subscriptionRepo.DeactivateAllSponsorships(user.Id);
+
+                var firstName = user.FirstName ?? user.Email;
+                _ = _emailService.SendAdminRevokedEmail(user.Email, firstName);
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AdminRevokePremium failed. Email={Email}", email);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
+        // === Stripe webhook handlers ==================================================
+
+        public async Task HandleStripePaymentSucceeded(Invoice invoice, string stripeEventId)
+        {
+            if (string.IsNullOrEmpty(invoice.CustomerId)) return;
+
+            var user = await _subscriptionRepo.GetUserByStripeCustomerId(invoice.CustomerId);
+            if (user == null) return;
+
+            var periodEnd = invoice.Lines?.Data?.FirstOrDefault()?.Period?.End;
+            if (periodEnd.HasValue)
+            {
+                await _subscriptionRepo.SetUserSubscription(user.Id, "premium", "stripe", periodEnd.Value);
+                await _listRepo.RestoreArchivedLists(user.Id);
+                await HandleCollaboratorSelfUpgrade(user.Id);
+            }
+
+            await _subscriptionRepo.SetGracePeriod(user.Id, null!);
+            await _subscriptionRepo.SetCancellationScheduled(user.Id, null);
+
+            if (!string.IsNullOrEmpty(stripeEventId))
+            {
+                // Check before inserting — each renewal has a new event ID so AddAsync.Success
+                // is true every month and cannot distinguish first payment from renewals.
+                var existingHistory = await _paymentHistoryRepo.GetByUserIdAsync(user.Id);
+                var isFirstPayment = !existingHistory.Any();
+
+                await _paymentHistoryRepo.AddAsync(new UserPaymentHistory
+                {
+                    UserId = user.Id,
+                    StripeEventId = stripeEventId,
+                    AmountPaid = invoice.AmountPaid / 100m,
+                    Currency = invoice.Currency ?? "usd",
+                    PlanType = "premium",
+                    PaidAt = invoice.StatusTransitions?.PaidAt ?? DateTime.UtcNow
+                });
+
+                if (isFirstPayment)
+                {
+                    var firstName = user.FirstName ?? user.Email;
+                    _ = _emailService.SendSubscriptionActivatedEmail(user.Email, firstName);
+                }
+            }
+        }
+
+        public async Task HandleStripePaymentFailed(Invoice invoice)
+        {
+            if (string.IsNullOrEmpty(invoice.CustomerId)) return;
+
+            var user = await _subscriptionRepo.GetUserByStripeCustomerId(invoice.CustomerId);
+            if (user == null) return;
+
+            await HandleSponsorLapse(user.Id);
+
+            var gracePeriodUntil = DateTime.UtcNow.AddDays(GraceDays);
+            var firstName = user.FirstName ?? user.Email;
+            _ = _emailService.SendPaymentFailedEmail(user.Email, firstName, gracePeriodUntil);
+        }
+
+        public async Task HandleStripeSubscriptionDeleted(Subscription subscription)
+        {
+            if (string.IsNullOrEmpty(subscription.CustomerId)) return;
+
+            var user = await _subscriptionRepo.GetUserByStripeCustomerId(subscription.CustomerId);
+            if (user == null) return;
+
+            var lastAccessDate = subscription.EndedAt ?? DateTime.UtcNow;
+            await _subscriptionRepo.SetCancellationScheduled(user.Id, null);
+            await HandleSponsorCancellation(user.Id);
+            await FinalizeSponsorCancellation(user.Id);
+
+            var firstName = user.FirstName ?? user.Email;
+            _ = _emailService.SendSubscriptionCancelledEmail(user.Email, firstName, lastAccessDate);
         }
 
         // === Stripe private methods ===================================================

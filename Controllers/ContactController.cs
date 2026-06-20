@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using zListBack.Dtos;
 using zListBack.Models;
-using zListBack.Repositories;
 using zListBack.Services;
 
 namespace zListBack.Controllers
@@ -13,15 +12,13 @@ namespace zListBack.Controllers
     [Authorize]
     public class ContactController : ControllerBase
     {
-        private readonly EmailService _emailService;
-        private readonly IUserRepository _userRepo;
+        private readonly ContactService _contactService;
 
         private int UserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-        public ContactController(EmailService emailService, IUserRepository userRepo)
+        public ContactController(ContactService contactService)
         {
-            _emailService = emailService;
-            _userRepo = userRepo;
+            _contactService = contactService;
         }
 
         [HttpPost]
@@ -34,19 +31,7 @@ namespace zListBack.Controllers
                 !validTypes.Contains(request.ContactType))
                 return Result<bool>.Fail("All fields are required.");
 
-            var userId = UserId;
-            var userResult = await _userRepo.GetUserAsync(userId);
-            if (!userResult.Success || userResult.Model == null)
-                return Result<bool>.Fail("User not found.");
-
-            return await _emailService.SendContactEmail(
-                userId,
-                userResult.Model.Email,
-                request.FirstName,
-                request.LastName,
-                request.ContactType,
-                request.Message
-            );
+            return await _contactService.Submit(UserId, request.FirstName, request.LastName, request.ContactType, request.Message);
         }
     }
 }
