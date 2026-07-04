@@ -83,7 +83,11 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         policy =>
         {
-            policy.WithOrigins("http://localhost:4200")
+            policy.WithOrigins(
+                    "http://localhost:4200",
+                    "https://zchecklist.com",
+                    "https://www.zchecklist.com",
+                    "https://blue-glacier-08208d91e.7.azurestaticapps.net")
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials();
