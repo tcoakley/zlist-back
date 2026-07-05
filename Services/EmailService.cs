@@ -144,8 +144,8 @@ namespace zListBack.Services
                         <p>— The zChecklist Team</p>"
                     : $@"<p>Hi {recipientFirstName},</p>
                         <p><strong>{sponsorName}</strong> has added you as a sponsored collaborator on zChecklist.
-                        You now have full Premium access — unlimited lists, real-time collaboration, and the ability
-                        to sponsor a collaborator of your own.</p>
+                        You now have full Premium access — unlimited lists, real-time collaboration, and you can
+                        add one collaborator of your own for free.</p>
                         <p>{sponsorName} can share specific lists with you directly. Any lists they add you to
                         will appear in your lists view.</p>
                         <p><a href=""{_baseUrl}/lists"">Go to your lists</a></p>

@@ -16,6 +16,8 @@ namespace zListBack.Repositories
 
         public async Task<bool> IsPremium(int userId)
         {
+            // Only a paid ($1/mo) seat grants premium. The free collaborator slot is a
+            // labeling/autocomplete convenience only — IsFreeSeat=1 rows never count here.
             const string sql = @"
                 SELECT CASE WHEN
                     (u.Subscription = 'premium' AND (u.GracePeriodUntil IS NULL OR u.GracePeriodUntil > GETUTCDATE()))
@@ -24,6 +26,7 @@ namespace zListBack.Repositories
                         INNER JOIN Users sponsor ON sponsor.Id = sc.SponsorUserId
                         WHERE sc.SponsoredUserId = @UserId
                           AND sc.IsActive = 1
+                          AND sc.IsFreeSeat = 0
                           AND (sc.GraceUntil IS NULL OR sc.GraceUntil > GETUTCDATE())
                           AND sponsor.Subscription = 'premium'
                     )

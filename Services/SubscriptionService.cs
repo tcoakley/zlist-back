@@ -165,8 +165,8 @@ namespace zListBack.Services
                     if (existing != null && existing.Value.SponsorUserId != sponsorId)
                         return Result<bool>.Fail("That email has already been invited by another sponsor and is awaiting signup.");
 
-                    var includesPremium = sponsorResult.Model?.SubscriptionSource == "stripe";
-                    return await InviteNewCollaborator(sponsorId, email, sponsorName, includesPremium);
+                    // The free slot never grants premium — it's a labeling/autocomplete convenience only.
+                    return await InviteNewCollaborator(sponsorId, email, sponsorName, includesPremium: false);
                 }
 
                 if (targetUser.Id == sponsorId)
