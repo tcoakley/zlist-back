@@ -17,15 +17,21 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Host.UseNLog();
 
-builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
+// UseAzureMonitor() throws at startup if no connection string is configured anywhere, instead of
+// no-op'ing — only wire it up when one is actually present (i.e. in Azure, via the App Service
+// setting). Local dev has none on purpose, so this is skipped entirely there.
+if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
 {
-    // Warning/Error logs should never be dropped just because their parent request wasn't sampled
-    o.EnableTraceBasedLogsSampler = false;
-});
+    builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
+    {
+        // Warning/Error logs should never be dropped just because their parent request wasn't sampled
+        o.EnableTraceBasedLogsSampler = false;
+    });
 
-// Only Warning/Error (and above) logs are sent to Application Insights, to keep ingestion volume/cost down.
-// NLog's own file/console targets are unaffected and keep their existing levels.
-builder.Logging.AddFilter<OpenTelemetryLoggerProvider>("", Microsoft.Extensions.Logging.LogLevel.Warning);
+    // Only Warning/Error (and above) logs are sent to Application Insights, to keep ingestion volume/cost down.
+    // NLog's own file/console targets are unaffected and keep their existing levels.
+    builder.Logging.AddFilter<OpenTelemetryLoggerProvider>("", Microsoft.Extensions.Logging.LogLevel.Warning);
+}
 
 // Required for Stripe webhook signature verification — must read raw body
 builder.Services.Configure<RouteOptions>(options => { });
