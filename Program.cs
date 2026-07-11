@@ -1,7 +1,9 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using NLog;
 using NLog.Web;
+using OpenTelemetry.Logs;
 using System.Text;
 using zListBack.Extensions;
 using zListBack.Hubs;
@@ -14,6 +16,16 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.ClearProviders();
 builder.Host.UseNLog();
+
+builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
+{
+    // Warning/Error logs should never be dropped just because their parent request wasn't sampled
+    o.EnableTraceBasedLogsSampler = false;
+});
+
+// Only Warning/Error (and above) logs are sent to Application Insights, to keep ingestion volume/cost down.
+// NLog's own file/console targets are unaffected and keep their existing levels.
+builder.Logging.AddFilter<OpenTelemetryLoggerProvider>("", Microsoft.Extensions.Logging.LogLevel.Warning);
 
 // Required for Stripe webhook signature verification — must read raw body
 builder.Services.Configure<RouteOptions>(options => { });
