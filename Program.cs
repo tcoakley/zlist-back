@@ -125,6 +125,9 @@ app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Answers Azure App Service's "Always On" keep-warm ping so it doesn't show up as a 404 in Application Insights
+app.MapGet("/", () => Results.Ok());
+
 app.MapControllers();
 app.MapHub<RunHub>("/hubs/run");
 
