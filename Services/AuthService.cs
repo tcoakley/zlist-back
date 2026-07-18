@@ -13,19 +13,22 @@ namespace zListBack.Services
         private readonly RecaptchaService _recaptchaService;
         private readonly EmailService _emailService;
         private readonly SubscriptionService _subscriptionService;
+        private readonly ILogger<AuthService> _logger;
 
         public AuthService(
             RefreshTokenRepository refreshTokenRepository,
             IUserRepository userRepository,
             RecaptchaService recaptchaService,
             EmailService emailService,
-            SubscriptionService subscriptionService)
+            SubscriptionService subscriptionService,
+            ILogger<AuthService> logger)
         {
             _refreshTokenRepository = refreshTokenRepository;
             _userRepository = userRepository;
             _recaptchaService = recaptchaService;
             _emailService = emailService;
             _subscriptionService = subscriptionService;
+            _logger = logger;
         }
 
         public async Task<(string TokenString, DateTime ExpiresAt)> CreateRefreshToken(int userId)
@@ -48,11 +51,28 @@ namespace zListBack.Services
         public async Task<(User User, string NewTokenString, DateTime ExpiresAt)?> RotateRefreshToken(string currentToken)
         {
             var refreshToken = await _refreshTokenRepository.GetByTokenAsync(currentToken);
-            if (refreshToken == null || refreshToken.ExpiresAt < DateTime.UtcNow || refreshToken.Revoked)
+            if (refreshToken == null)
+            {
+                _logger.LogWarning("Refresh failed: token not found.");
                 return null;
+            }
+            if (refreshToken.Revoked)
+            {
+                _logger.LogWarning("Refresh failed: token already revoked (UserId={UserId}). Likely a concurrent refresh or token reuse.", refreshToken.UserId);
+                return null;
+            }
+            if (refreshToken.ExpiresAt < DateTime.UtcNow)
+            {
+                _logger.LogWarning("Refresh failed: token expired at {ExpiresAt} (UserId={UserId}).", refreshToken.ExpiresAt, refreshToken.UserId);
+                return null;
+            }
 
             var user = refreshToken.User;
-            if (user == null) return null;
+            if (user == null)
+            {
+                _logger.LogWarning("Refresh failed: no user found for UserId={UserId}.", refreshToken.UserId);
+                return null;
+            }
 
             var newTokenString = TokenHelper.GenerateRefreshToken();
             var newToken = new RefreshToken
