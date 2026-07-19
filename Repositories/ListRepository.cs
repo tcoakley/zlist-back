@@ -661,6 +661,49 @@ namespace zListBack.Repositories
             }
         }
 
+        public async Task<Result<bool>> DeleteListRun(int runId, int userId)
+        {
+            try
+            {
+                const string ownerCheckSql = @"
+                    SELECT ul.IsOwner
+                    FROM ListRuns lr
+                    INNER JOIN UserLists ul ON ul.ListId = lr.ListId AND ul.UserId = @UserId
+                    WHERE lr.Id = @RunId;";
+
+                const string deleteRunItemsSql = @"
+                    DELETE FROM ListRunItems
+                    WHERE ListRunId = @RunId;";
+
+                const string deleteRunSql = @"
+                    DELETE FROM ListRuns
+                    WHERE Id = @RunId;";
+
+                var isOwner = await _connection.ExecuteScalarAsync<bool?>(
+                    ownerCheckSql, new { RunId = runId, UserId = userId });
+
+                if (isOwner == null)
+                    return Result<bool>.Fail("List run not found");
+
+                if (!isOwner.Value)
+                    return Result<bool>.Fail("Only the list owner can delete run history.");
+
+                using var transaction = _connection.BeginTransaction();
+
+                await _connection.ExecuteAsync(deleteRunItemsSql, new { RunId = runId }, transaction);
+                await _connection.ExecuteAsync(deleteRunSql, new { RunId = runId }, transaction);
+
+                transaction.Commit();
+
+                return Result<bool>.Ok(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DeleteListRun failed. RunId={RunId}, UserId={UserId}", runId, userId);
+                return Result<bool>.Fail(ex.Message);
+            }
+        }
+
         public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
         {
             try

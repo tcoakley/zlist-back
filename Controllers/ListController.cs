@@ -95,6 +95,15 @@ namespace zListBack.Controllers
             return await _listService.DeleteList(listId, _userId);
         }
 
+        [HttpDelete("DeleteListRun/{runId}")]
+        public async Task<Result<bool>> DeleteListRun(int runId)
+        {
+            var result = await _listService.DeleteListRun(runId, _userId);
+            if (result.Success)
+                await _hub.Clients.Group($"run-{runId}").SendAsync("RunDeleted");
+            return result;
+        }
+
         [HttpPut("CompleteListRun/{runId}")]
         public async Task<Result<bool>> CompleteListRun(int runId)
         {
