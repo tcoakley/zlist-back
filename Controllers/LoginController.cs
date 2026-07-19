@@ -16,19 +16,22 @@ namespace zListBack.Controllers
         private readonly EmailService _emailService;
         private readonly AuthService _authService;
         private readonly SubscriptionService _subscriptionService;
+        private readonly ILogger<LoginController> _logger;
 
         public LoginController(
             IConfiguration configuration,
             IUserRepository userRepository,
             EmailService emailService,
             AuthService authService,
-            SubscriptionService subscriptionService)
+            SubscriptionService subscriptionService,
+            ILogger<LoginController> logger)
         {
             _configuration = configuration;
             _userRepository = userRepository;
             _emailService = emailService;
             _authService = authService;
             _subscriptionService = subscriptionService;
+            _logger = logger;
         }
 
         [HttpPost]
@@ -64,7 +67,10 @@ namespace zListBack.Controllers
         public async Task<IActionResult> Refresh()
         {
             if (!Request.Cookies.TryGetValue("refreshToken", out var refreshTokenString))
+            {
+                _logger.LogWarning("Refresh failed: no refreshToken cookie present on the request.");
                 return Unauthorized("Refresh token not found.");
+            }
 
             var rotated = await _authService.RotateRefreshToken(refreshTokenString);
             if (rotated == null)
