@@ -120,10 +120,22 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// This is a backend API, never meant to appear in search results — api.zchecklist.com got indexed
+// with an empty body anyway (Google found it and crawled the "/" keep-warm endpoint below). The
+// header covers every response under /api/* too; robots.txt covers crawlers that check it first.
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
+    await next();
+});
+
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n", "text/plain"));
 
 // Answers Azure App Service's "Always On" keep-warm ping so it doesn't show up as a 404 in Application Insights
 app.MapGet("/", () => Results.Ok());
