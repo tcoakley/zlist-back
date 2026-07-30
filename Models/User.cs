@@ -7,7 +7,7 @@ namespace zListBack.Models
     {
         public int Id { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-        public string Password { get; set; } = string.Empty;
+        public string? Password { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public string? ResetPassword { get; set; }
         public required string Email { get; set; }

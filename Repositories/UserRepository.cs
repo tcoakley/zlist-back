@@ -109,11 +109,51 @@ namespace zListBack.Repositories
             }
         }
 
+        // Google-only accounts have no password to hash — separate from AddUserAsync so the
+        // normal password-signup path can't accidentally be reached with a null/empty password.
+        public async Task<Result<User>> AddGoogleUserAsync(User user)
+        {
+            try
+            {
+                const string sql = @"
+                    INSERT INTO Users (Email, FirstName, LastName, Password, CreatedAt, LastActiveAt)
+                    OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
+                           INSERTED.Password, INSERTED.ResetPassword,
+                           INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
+                           INSERTED.CreatedAt, INSERTED.UpdatedAt
+                    VALUES (@Email, @FirstName, @LastName, NULL, @CreatedAt, @CreatedAt);";
+
+                var inserted = await _connection.QuerySingleAsync<User>(
+                    sql,
+                    new
+                    {
+                        user.Email,
+                        user.FirstName,
+                        user.LastName,
+                        CreatedAt = DateTime.UtcNow
+                    }
+                );
+
+                return Result<User>.Ok(inserted, "Account Successfully created");
+            }
+            catch (Exception ex)
+            {
+                var isDuplicate = ex.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) ||
+                                  (ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true);
+                if (!isDuplicate)
+                    _logger.LogError(ex, "AddGoogleUserAsync failed. Email={Email}", user.Email);
+                var message = isDuplicate
+                    ? "A user with this email already exists. Please login or use a different email address."
+                    : ex.Message;
+                return Result<User>.Fail(message);
+            }
+        }
+
         public async Task<Result<User>> UpdateUserAsync(User model)
         {
             try
             {
-                if (model.Password.Length > 0)
+                if (!string.IsNullOrEmpty(model.Password))
                 {
                     const string sql = @"
                         UPDATE Users

@@ -49,6 +49,7 @@ builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<ContactService>();
 builder.Services.AddScoped<EmailService>();
+builder.Services.AddScoped<GoogleAuthService>();
 builder.Services.AddScoped<ListService>();
 builder.Services.AddScoped<RecaptchaService>();
 builder.Services.AddHttpClient();

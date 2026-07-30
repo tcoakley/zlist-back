@@ -15,6 +15,7 @@ namespace zListBack.Controllers
         private readonly IUserRepository _userRepository;
         private readonly EmailService _emailService;
         private readonly AuthService _authService;
+        private readonly GoogleAuthService _googleAuthService;
         private readonly SubscriptionService _subscriptionService;
         private readonly ILogger<LoginController> _logger;
 
@@ -23,6 +24,7 @@ namespace zListBack.Controllers
             IUserRepository userRepository,
             EmailService emailService,
             AuthService authService,
+            GoogleAuthService googleAuthService,
             SubscriptionService subscriptionService,
             ILogger<LoginController> logger)
         {
@@ -30,6 +32,7 @@ namespace zListBack.Controllers
             _userRepository = userRepository;
             _emailService = emailService;
             _authService = authService;
+            _googleAuthService = googleAuthService;
             _subscriptionService = subscriptionService;
             _logger = logger;
         }
@@ -41,7 +44,25 @@ namespace zListBack.Controllers
             if (!result.Success)
                 return BadRequest(result.Message);
 
-            var user = result.Model!;
+            return await IssueLoginResponse(result.Model!);
+        }
+
+        [HttpPost("google")]
+        public async Task<IActionResult> LoginWithGoogle([FromBody] GoogleLoginRequest request)
+        {
+            var googleUser = await _googleAuthService.VerifyIdTokenAsync(request.Credential);
+            if (googleUser == null)
+                return Unauthorized("Invalid Google credential.");
+
+            var result = await _authService.GetOrCreateGoogleUser(googleUser);
+            if (!result.Success)
+                return BadRequest(result.Message);
+
+            return await IssueLoginResponse(result.Model!);
+        }
+
+        private async Task<IActionResult> IssueLoginResponse(User user)
+        {
             await _userRepository.UpdateLastActiveAt(user.Id);
 
             var accessToken = JwtTokenGenerator.GenerateToken(user, _configuration);
@@ -81,6 +102,24 @@ namespace zListBack.Controllers
             SetRefreshTokenCookie(newTokenString, expiresAt);
 
             return Ok(Result<object>.Ok(new { Token = newAccessToken }));
+        }
+
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            if (Request.Cookies.TryGetValue("refreshToken", out var refreshTokenString))
+            {
+                await _authService.Logout(refreshTokenString);
+            }
+
+            Response.Cookies.Delete("refreshToken", new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict
+            });
+
+            return Ok();
         }
 
         private void SetRefreshTokenCookie(string token, DateTime expiresAt)

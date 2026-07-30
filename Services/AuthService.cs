@@ -90,6 +90,12 @@ namespace zListBack.Services
             return (user, newTokenString, newToken.ExpiresAt);
         }
 
+        public async Task Logout(string? refreshTokenValue)
+        {
+            if (!string.IsNullOrEmpty(refreshTokenValue))
+                await _refreshTokenRepository.InvalidateAsync(refreshTokenValue);
+        }
+
         public async Task<Result<UserModel>> SignupUser(SignupRequest request)
         {
             var captchaValid = await _recaptchaService.VerifyAsync(request.CaptchaToken);
@@ -111,6 +117,31 @@ namespace zListBack.Services
             _ = _emailService.SendWelcomeEmail(user.Email, user.FirstName ?? user.Email);
             await _subscriptionService.ApplyPendingSponsorshipOnSignup(result.Model!.Id, request.Email);
             return Result<UserModel>.Ok(UserMapper.ToDto(result.Model!));
+        }
+
+        // Account linking: a verified Google email matching an existing account signs into that
+        // account rather than creating a duplicate. Only creates a new (password-less) account
+        // when no match exists.
+        public async Task<Result<User>> GetOrCreateGoogleUser(GoogleUserInfo googleUser)
+        {
+            var existing = await _userRepository.GetUserByEmailAsync(googleUser.Email);
+            if (existing.Success)
+                return existing;
+
+            var user = new User
+            {
+                Email = googleUser.Email,
+                FirstName = googleUser.FirstName,
+                LastName = googleUser.LastName
+            };
+
+            var result = await _userRepository.AddGoogleUserAsync(user);
+            if (!result.Success)
+                return Result<User>.Fail(result.Message ?? "Failed to add user.");
+
+            _ = _emailService.SendWelcomeEmail(user.Email, user.FirstName ?? user.Email);
+            await _subscriptionService.ApplyPendingSponsorshipOnSignup(result.Model!.Id, googleUser.Email);
+            return result;
         }
 
         public async Task<Result<UserModel>> GetUserProfileWithPremium(int userId)
