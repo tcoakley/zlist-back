@@ -182,6 +182,9 @@ namespace zListBack.Repositories
             }
         }
 
+        private const int MaxFailedLoginAttempts = 5;
+        private const int LockoutMinutes = 15;
+
         public async Task<Result<User>> CheckLoginAsync(string email, string password)
         {
             try
@@ -192,7 +195,8 @@ namespace zListBack.Repositories
                            StripeCustomerId, StripeSubscriptionId, GracePeriodUntil,
                            IsAdmin, IsHelpEnabled, SortCompletedToBottom,
                            LastActiveAt, InactivityNoticeSentAt, BillingReminderSentAt,
-                           CancellationScheduledAt, CreatedAt, UpdatedAt
+                           CancellationScheduledAt, FailedLoginAttempts, LockoutUntil,
+                           CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 
@@ -200,9 +204,9 @@ namespace zListBack.Repositories
                 if (user == null)
                     return Result<User>.Fail("Invalid email or password");
 
-                if (!string.IsNullOrEmpty(user.Password) && BCrypt.Net.BCrypt.Verify(password, user.Password))
-                    return Result<User>.Ok(user);
-
+                // A correct reset/temp password proves email ownership, at least as strongly as the
+                // original password would — so it's allowed through even while locked out; it's the
+                // designated recovery path out of a lockout, not just another guessable credential.
                 if (!string.IsNullOrEmpty(user.ResetPassword) && user.ResetPassword == password)
                 {
                     const string updateSql = @"
@@ -213,10 +217,24 @@ namespace zListBack.Repositories
                     user.Password = BCrypt.Net.BCrypt.HashPassword(password);
                     user.ResetPassword = null;
                     await _connection.ExecuteAsync(updateSql, new { Password = user.Password, user.Id });
+                    await ResetFailedLoginAttemptsAsync(user);
 
                     return Result<User>.Ok(user);
                 }
 
+                if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
+                {
+                    var minutesRemaining = (int)Math.Ceiling((user.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
+                    return Result<User>.Fail($"Account locked due to too many failed login attempts. Try again in {minutesRemaining} minute(s).");
+                }
+
+                if (!string.IsNullOrEmpty(user.Password) && BCrypt.Net.BCrypt.Verify(password, user.Password))
+                {
+                    await ResetFailedLoginAttemptsAsync(user);
+                    return Result<User>.Ok(user);
+                }
+
+                await RegisterFailedLoginAttemptAsync(user);
                 return Result<User>.Fail("Invalid email or password");
             }
             catch (Exception ex)
@@ -224,6 +242,36 @@ namespace zListBack.Repositories
                 _logger.LogError(ex, "CheckLoginAsync failed. Email={Email}", email);
                 return Result<User>.Fail(ex.Message);
             }
+        }
+
+        private async Task ResetFailedLoginAttemptsAsync(User user)
+        {
+            if (user.FailedLoginAttempts == 0 && user.LockoutUntil == null)
+                return;
+
+            const string sql = @"
+                UPDATE Users
+                SET FailedLoginAttempts = 0, LockoutUntil = NULL
+                WHERE Id = @Id;";
+            await _connection.ExecuteAsync(sql, new { user.Id });
+        }
+
+        private async Task RegisterFailedLoginAttemptAsync(User user)
+        {
+            // A past-expired lockout starts a fresh attempt count rather than accumulating forever.
+            var baseAttempts = user.LockoutUntil.HasValue && user.LockoutUntil.Value <= DateTime.UtcNow
+                ? 0
+                : user.FailedLoginAttempts;
+            var attempts = baseAttempts + 1;
+            DateTime? lockoutUntil = attempts >= MaxFailedLoginAttempts
+                ? DateTime.UtcNow.AddMinutes(LockoutMinutes)
+                : null;
+
+            const string sql = @"
+                UPDATE Users
+                SET FailedLoginAttempts = @Attempts, LockoutUntil = @LockoutUntil
+                WHERE Id = @Id;";
+            await _connection.ExecuteAsync(sql, new { Attempts = attempts, LockoutUntil = lockoutUntil, user.Id });
         }
 
         public async Task<Result<string>> GenerateResetPassword(string email)

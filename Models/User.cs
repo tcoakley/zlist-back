@@ -26,6 +26,10 @@ namespace zListBack.Models
         public DateTime? LastActiveAt { get; set; }
         public DateTime? InactivityNoticeSentAt { get; set; }
         public DateTime? BillingReminderSentAt { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public int FailedLoginAttempts { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public DateTime? LockoutUntil { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }
