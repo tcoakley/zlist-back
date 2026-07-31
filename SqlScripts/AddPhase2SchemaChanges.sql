@@ -19,6 +19,8 @@ ALTER TABLE ListRunItems ADD ParentId INT NULL;
 ALTER TABLE ListRunItems ADD CONSTRAINT FK_ListRunItems_ParentId FOREIGN KEY (ParentId) REFERENCES ListRunItems(Id);
 CREATE INDEX IX_ListRunItems_ParentId ON ListRunItems(ParentId);
 
--- 6. Mobile autofocus preference — defaults to enabled, matching the existing
--- IsHelpEnabled / SortCompletedToBottom default-on pattern for Profile Settings toggles.
-ALTER TABLE Users ADD AutofocusEnabled BIT NOT NULL DEFAULT 1;
+-- 6. Mobile autofocus preference — defaults to disabled (opt-in). The directive already
+-- skips autofocus on mobile by default; this column only re-enables it for a user who has
+-- explicitly turned it on in Profile > Settings, so it must default off, not on like the
+-- IsHelpEnabled / SortCompletedToBottom toggles.
+ALTER TABLE Users ADD AutofocusEnabled BIT NOT NULL DEFAULT 0;

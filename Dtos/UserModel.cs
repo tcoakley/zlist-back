@@ -13,6 +13,7 @@
         public bool IsAdmin { get; set; }
         public bool IsHelpEnabled { get; set; } = true;
         public bool SortCompletedToBottom { get; set; } = true;
+        public bool AutofocusEnabled { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }

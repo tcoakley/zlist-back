@@ -23,6 +23,7 @@ namespace zListBack.Models
         public bool IsAdmin { get; set; }
         public bool IsHelpEnabled { get; set; } = true;
         public bool SortCompletedToBottom { get; set; } = true;
+        public bool AutofocusEnabled { get; set; }
         public DateTime? LastActiveAt { get; set; }
         public DateTime? InactivityNoticeSentAt { get; set; }
         public DateTime? BillingReminderSentAt { get; set; }

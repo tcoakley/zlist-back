@@ -24,7 +24,7 @@ namespace zListBack.Repositories
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
                            Subscription, SubscriptionExpiresAt, SubscriptionSource,
                            StripeCustomerId, StripeSubscriptionId, GracePeriodUntil,
-                           IsAdmin, IsHelpEnabled, SortCompletedToBottom,
+                           IsAdmin, IsHelpEnabled, SortCompletedToBottom, AutofocusEnabled,
                            LastActiveAt, InactivityNoticeSentAt, BillingReminderSentAt,
                            CancellationScheduledAt, CreatedAt, UpdatedAt
                     FROM Users
@@ -51,7 +51,7 @@ namespace zListBack.Repositories
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
                            Subscription, SubscriptionExpiresAt, SubscriptionSource,
                            StripeCustomerId, StripeSubscriptionId, GracePeriodUntil,
-                           IsAdmin, IsHelpEnabled, SortCompletedToBottom,
+                           IsAdmin, IsHelpEnabled, SortCompletedToBottom, AutofocusEnabled,
                            LastActiveAt, InactivityNoticeSentAt, BillingReminderSentAt,
                            CancellationScheduledAt, CreatedAt, UpdatedAt
                     FROM Users
@@ -159,10 +159,11 @@ namespace zListBack.Repositories
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
                             Password = @Password, IsHelpEnabled = @IsHelpEnabled,
-                            SortCompletedToBottom = @SortCompletedToBottom, UpdatedAt = GETUTCDATE()
+                            SortCompletedToBottom = @SortCompletedToBottom, AutofocusEnabled = @AutofocusEnabled,
+                            UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
                                INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
-                               INSERTED.SortCompletedToBottom, INSERTED.CreatedAt, INSERTED.UpdatedAt
+                               INSERTED.SortCompletedToBottom, INSERTED.AutofocusEnabled, INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
                     var updated = await _connection.QuerySingleOrDefaultAsync<User>(
@@ -175,7 +176,8 @@ namespace zListBack.Repositories
                             model.LastName,
                             Password = BCrypt.Net.BCrypt.HashPassword(model.Password),
                             model.IsHelpEnabled,
-                            model.SortCompletedToBottom
+                            model.SortCompletedToBottom,
+                            model.AutofocusEnabled
                         }
                     );
 
@@ -190,10 +192,10 @@ namespace zListBack.Repositories
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
                             IsHelpEnabled = @IsHelpEnabled, SortCompletedToBottom = @SortCompletedToBottom,
-                            UpdatedAt = GETUTCDATE()
+                            AutofocusEnabled = @AutofocusEnabled, UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
                                INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
-                               INSERTED.SortCompletedToBottom, INSERTED.CreatedAt, INSERTED.UpdatedAt
+                               INSERTED.SortCompletedToBottom, INSERTED.AutofocusEnabled, INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
                     var updated = await _connection.QuerySingleOrDefaultAsync<User>(
@@ -205,7 +207,8 @@ namespace zListBack.Repositories
                             model.FirstName,
                             model.LastName,
                             model.IsHelpEnabled,
-                            model.SortCompletedToBottom
+                            model.SortCompletedToBottom,
+                            model.AutofocusEnabled
                         }
                     );
 
@@ -233,7 +236,7 @@ namespace zListBack.Repositories
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
                            Subscription, SubscriptionExpiresAt, SubscriptionSource,
                            StripeCustomerId, StripeSubscriptionId, GracePeriodUntil,
-                           IsAdmin, IsHelpEnabled, SortCompletedToBottom,
+                           IsAdmin, IsHelpEnabled, SortCompletedToBottom, AutofocusEnabled,
                            LastActiveAt, InactivityNoticeSentAt, BillingReminderSentAt,
                            CancellationScheduledAt, FailedLoginAttempts, LockoutUntil,
                            CreatedAt, UpdatedAt
