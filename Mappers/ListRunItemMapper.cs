@@ -15,6 +15,7 @@ namespace zListBack.Mappers
                 ListItemName = model.ListItemName,
                 ListItemDescription = model.ListItemDescription,
                 SortOrder = model.SortOrder,
+                ParentId = model.ParentId,
                 CompletedAt = model.CompletedAt,
                 CompletedBy = model.CompletedBy
             };
@@ -30,6 +31,7 @@ namespace zListBack.Mappers
                 ListItemName = entity.ListItemName,
                 ListItemDescription = entity.ListItemDescription,
                 SortOrder = entity.SortOrder,
+                ParentId = entity.ParentId,
                 CompletedAt = entity.CompletedAt,
                 CompletedBy = entity.CompletedBy,
                 CompletedByInitials = entity.CompletedByInitials,
