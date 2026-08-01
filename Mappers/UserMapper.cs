@@ -15,6 +15,7 @@ public static class UserMapper
         IsAdmin = user.IsAdmin,
         IsHelpEnabled = user.IsHelpEnabled,
         SortCompletedToBottom = user.SortCompletedToBottom,
+        AutofocusEnabled = user.AutofocusEnabled,
         CreatedAt = user.CreatedAt,
         UpdatedAt = user.UpdatedAt
     };

@@ -52,6 +52,13 @@ namespace zListBack.Services
 
         public async Task<Result<ListItemModel>> AddListItem(ListItemModel model)
         {
+            if (model.ParentId.HasValue)
+            {
+                var grandParentId = await _listRepository.GetParentIdForItem(model.ParentId.Value);
+                if (grandParentId.HasValue)
+                    return Result<ListItemModel>.Fail("Subtasks cannot themselves have subtasks.");
+            }
+
             var entity = ListItemMapper.ToEntity(model);
             var result = await _listRepository.AddListItem(entity);
 
@@ -90,7 +97,7 @@ namespace zListBack.Services
             return await _listRepository.CompleteListRun(runId, userId);
         }
 
-        public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
+        public async Task<Result<int?>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
         {
             await _userRepo.UpdateLastActiveAt(userId);
             return await _listRepository.SetListRunItemCompletion(runItemId, isComplete, userId);
@@ -130,6 +137,16 @@ namespace zListBack.Services
 
         public async Task<Result<bool>> EditListItem(ListItemModel model)
         {
+            if (model.ParentId.HasValue)
+            {
+                var grandParentId = await _listRepository.GetParentIdForItem(model.ParentId.Value);
+                if (grandParentId.HasValue)
+                    return Result<bool>.Fail("Subtasks cannot themselves have subtasks.");
+
+                if (await _listRepository.ItemHasChildren(model.Id))
+                    return Result<bool>.Fail("An item with existing subtasks cannot become a subtask itself.");
+            }
+
             var entity = ListItemMapper.ToEntity(model);
             return await _listRepository.EditListItem(entity);
         }

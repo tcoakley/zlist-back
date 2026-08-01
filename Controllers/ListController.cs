@@ -117,14 +117,22 @@ namespace zListBack.Controllers
         public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, [FromBody] ToggleRunItemRequest request)
         {
             var result = await _listService.SetListRunItemCompletion(runItemId, request.IsComplete, _userId);
-            if (result.Success)
-            {
-                var initials = RunHub.GetUserInitials(_userId);
-                var displayName = RunHub.GetUserDisplayName(_userId);
+            if (!result.Success)
+                return Result<bool>.Fail(result.Message ?? "Failed to update item.");
+
+            var initials = RunHub.GetUserInitials(_userId);
+            var displayName = RunHub.GetUserDisplayName(_userId);
+            await _hub.Clients.Group($"run-{request.RunId}")
+                .SendAsync("ItemToggled", runItemId, request.IsComplete, initials, displayName);
+
+            // A subtask being un-completed can force its (previously complete) parent back to
+            // incomplete too — broadcast that as a second, ordinary ItemToggled event so every
+            // connected client (including other tabs/collaborators) picks up both changes live.
+            if (result.Model.HasValue)
                 await _hub.Clients.Group($"run-{request.RunId}")
-                    .SendAsync("ItemToggled", runItemId, request.IsComplete, initials, displayName);
-            }
-            return result;
+                    .SendAsync("ItemToggled", result.Model.Value, false, initials, displayName);
+
+            return Result<bool>.Ok(true);
         }
 
         [HttpGet("GetListRun/{runId}")]

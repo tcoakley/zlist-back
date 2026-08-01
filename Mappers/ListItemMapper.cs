@@ -13,7 +13,8 @@ namespace zListBack.Mappers
                 ListId = model.ListId,
                 ItemName = model.ItemName,
                 ItemDescription = model.ItemDescription,
-                SortOrder = model.SortOrder
+                SortOrder = model.SortOrder,
+                ParentId = model.ParentId
             };
         }
 
@@ -25,7 +26,8 @@ namespace zListBack.Mappers
                 ListId = entity.ListId,
                 ItemName = entity.ItemName,
                 ItemDescription = entity.ItemDescription,
-                SortOrder = entity.SortOrder
+                SortOrder = entity.SortOrder,
+                ParentId = entity.ParentId
             };
         }
     }

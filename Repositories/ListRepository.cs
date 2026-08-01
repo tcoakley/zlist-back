@@ -253,7 +253,8 @@ namespace zListBack.Repositories
 				        ListId,
 				        ItemName,
 				        ItemDescription,
-				        SortOrder
+				        SortOrder,
+				        ParentId
 			        )
 			        OUTPUT INSERTED.Id
 			        VALUES
@@ -261,7 +262,8 @@ namespace zListBack.Repositories
 				        @ListId,
 				        @ItemName,
 				        @ItemDescription,
-				        @SortOrder
+				        @SortOrder,
+				        @ParentId
 			        );";
 
                 var newId = await _connection.ExecuteScalarAsync<int>(
@@ -271,7 +273,8 @@ namespace zListBack.Repositories
                         item.ListId,
                         item.ItemName,
                         item.ItemDescription,
-                        item.SortOrder
+                        item.SortOrder,
+                        item.ParentId
                     }
                 );
 
@@ -295,7 +298,8 @@ namespace zListBack.Repositories
 			        SET
 				        ItemName = @ItemName,
 				        ItemDescription = @ItemDescription,
-				        SortOrder = @SortOrder
+				        SortOrder = @SortOrder,
+				        ParentId = @ParentId
 			        WHERE Id = @Id;";
 
                 var rowsAffected = await _connection.ExecuteAsync(
@@ -305,7 +309,8 @@ namespace zListBack.Repositories
                         updatedItem.Id,
                         updatedItem.ItemName,
                         updatedItem.ItemDescription,
-                        updatedItem.SortOrder
+                        updatedItem.SortOrder,
+                        updatedItem.ParentId
                     }
                 );
 
@@ -330,6 +335,11 @@ namespace zListBack.Repositories
 			        FROM ListItems
 			        WHERE Id = @ItemId;";
 
+                const string childIdsSql = @"
+			        SELECT Id
+			        FROM ListItems
+			        WHERE ParentId = @ItemId;";
+
                 const string unlinkRunItemsSql = @"
 			        UPDATE ListRunItems
 			        SET ListItemId = NULL
@@ -347,7 +357,30 @@ namespace zListBack.Repositories
                 if (exists == 0)
                     return Result<bool>.Fail("List item not found");
 
+                var childIds = (await _connection.QueryAsync<int>(
+                    childIdsSql,
+                    new { ItemId = itemId }
+                )).ToList();
+
                 using var transaction = _connection.BeginTransaction();
+
+                // Children first (subtasks), then the item itself — a parent with existing
+                // subtasks would otherwise hit the FK_ListItems_ParentId constraint, since
+                // self-referencing FKs on this table can't use ON DELETE CASCADE.
+                foreach (var childId in childIds)
+                {
+                    await _connection.ExecuteAsync(
+                        unlinkRunItemsSql,
+                        new { ItemId = childId },
+                        transaction
+                    );
+
+                    await _connection.ExecuteAsync(
+                        deleteItemSql,
+                        new { ItemId = childId },
+                        transaction
+                    );
+                }
 
                 await _connection.ExecuteAsync(
                     unlinkRunItemsSql,
@@ -370,6 +403,18 @@ namespace zListBack.Repositories
                 _logger.LogError(ex, "DeleteListItem failed. ItemId={ItemId}", itemId);
                 return Result<bool>.Fail(ex.Message);
             }
+        }
+
+        public async Task<int?> GetParentIdForItem(int itemId)
+        {
+            const string sql = "SELECT ParentId FROM ListItems WHERE Id = @ItemId;";
+            return await _connection.ExecuteScalarAsync<int?>(sql, new { ItemId = itemId });
+        }
+
+        public async Task<bool> ItemHasChildren(int itemId)
+        {
+            const string sql = "SELECT COUNT(1) FROM ListItems WHERE ParentId = @ItemId;";
+            return await _connection.ExecuteScalarAsync<int>(sql, new { ItemId = itemId }) > 0;
         }
 
 
@@ -396,7 +441,8 @@ namespace zListBack.Repositories
 				        ListId,
 				        ItemName,
 				        ItemDescription,
-				        SortOrder
+				        SortOrder,
+				        ParentId
 			        FROM ListItems
 			        WHERE ListId = @ListId
 			        ORDER BY SortOrder, Id;";
@@ -495,7 +541,7 @@ namespace zListBack.Repositories
                 const string activeRunItemsSql = @"
                     SELECT
                         lri.Id, lri.ListRunId, lri.ListItemId,
-                        lri.ListItemName, lri.ListItemDescription, lri.SortOrder,
+                        lri.ListItemName, lri.ListItemDescription, lri.SortOrder, lri.ParentId,
                         lri.CompletedAt, lri.CompletedBy,
                         CASE
                             WHEN lri.CompletedBy IS NOT NULL
@@ -534,7 +580,8 @@ namespace zListBack.Repositories
 				        ListId,
 				        ItemName,
 				        ItemDescription,
-				        SortOrder
+				        SortOrder,
+				        ParentId
 			        FROM ListItems
 			        WHERE ListId = @ListId
 			        ORDER BY SortOrder, Id;";
@@ -557,7 +604,8 @@ namespace zListBack.Repositories
 				        ListItemId,
 				        ListItemName,
 				        ListItemDescription,
-				        SortOrder
+				        SortOrder,
+				        ParentId
 			        )
 			        OUTPUT INSERTED.Id
 			        VALUES
@@ -566,7 +614,8 @@ namespace zListBack.Repositories
 				        @ListItemId,
 				        @ListItemName,
 				        @ListItemDescription,
-				        @SortOrder
+				        @SortOrder,
+				        @ParentId
 			        );";
 
                 var exists = await _connection.ExecuteScalarAsync<int>(
@@ -593,7 +642,16 @@ namespace zListBack.Repositories
                 insertedRun.ListId = listId;
                 insertedRun.Items = new System.Collections.Generic.List<ListRunItem>();
 
-                foreach (var item in listItems)
+                // Two-pass: root items first (building an old-id -> new-run-item-id map), then
+                // subtasks resolving ParentId from that map. A single combined-sort pass can't
+                // guarantee parents are visited before their children, since a subtask's SortOrder
+                // is scoped to its own parent and can numerically precede a later root's SortOrder.
+                var roots = listItems.Where(i => i.ParentId == null).OrderBy(i => i.SortOrder).ThenBy(i => i.Id).ToList();
+                var childrenByParent = listItems.Where(i => i.ParentId != null)
+                    .GroupBy(i => i.ParentId!.Value)
+                    .ToDictionary(g => g.Key, g => g.OrderBy(i => i.SortOrder).ThenBy(i => i.Id).ToList());
+
+                foreach (var item in roots)
                 {
                     var runItem = new ListRunItem
                     {
@@ -601,7 +659,8 @@ namespace zListBack.Repositories
                         ListItemId = item.Id,
                         ListItemName = item.ItemName,
                         ListItemDescription = item.ItemDescription,
-                        SortOrder = item.SortOrder
+                        SortOrder = item.SortOrder,
+                        ParentId = null
                     };
 
                     var newRunItemId = await _connection.ExecuteScalarAsync<int>(
@@ -612,13 +671,47 @@ namespace zListBack.Repositories
                             runItem.ListItemId,
                             runItem.ListItemName,
                             runItem.ListItemDescription,
-                            runItem.SortOrder
+                            runItem.SortOrder,
+                            runItem.ParentId
                         },
                         transaction
                     );
 
                     runItem.Id = newRunItemId;
                     insertedRun.Items.Add(runItem);
+
+                    if (!childrenByParent.TryGetValue(item.Id, out var kids))
+                        continue;
+
+                    foreach (var child in kids)
+                    {
+                        var childRunItem = new ListRunItem
+                        {
+                            ListRunId = insertedRun.Id,
+                            ListItemId = child.Id,
+                            ListItemName = child.ItemName,
+                            ListItemDescription = child.ItemDescription,
+                            SortOrder = child.SortOrder,
+                            ParentId = newRunItemId
+                        };
+
+                        var newChildRunItemId = await _connection.ExecuteScalarAsync<int>(
+                            insertListRunItemSql,
+                            new
+                            {
+                                childRunItem.ListRunId,
+                                childRunItem.ListItemId,
+                                childRunItem.ListItemName,
+                                childRunItem.ListItemDescription,
+                                childRunItem.SortOrder,
+                                childRunItem.ParentId
+                            },
+                            transaction
+                        );
+
+                        childRunItem.Id = newChildRunItemId;
+                        insertedRun.Items.Add(childRunItem);
+                    }
                 }
 
                 transaction.Commit();
@@ -704,33 +797,105 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<bool>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
+        private class RunItemParentInfo
+        {
+            public int Id { get; set; }
+            public int? ParentId { get; set; }
+        }
+
+        private class RunItemCompletionInfo
+        {
+            public int Id { get; set; }
+            public DateTime? CompletedAt { get; set; }
+        }
+
+        // Returns the cascaded parent's run-item id in Result.Model when un-completing a subtask
+        // forces its (previously complete) parent back to incomplete too, so the caller can
+        // broadcast that second state change; null otherwise.
+        public async Task<Result<int?>> SetListRunItemCompletion(int runItemId, bool isComplete, int userId)
         {
             try
             {
-                const string sql = @"
+                const string infoSql = @"
+                    SELECT Id, ParentId
+                    FROM ListRunItems
+                    WHERE Id = @RunItemId;";
+
+                const string incompleteChildrenSql = @"
+                    SELECT COUNT(1)
+                    FROM ListRunItems
+                    WHERE ParentId = @RunItemId AND CompletedAt IS NULL;";
+
+                const string updateSql = @"
                     UPDATE ListRunItems
                     SET
                         CompletedAt = CASE WHEN @IsComplete = 1 THEN GETUTCDATE() ELSE NULL END,
                         CompletedBy = CASE WHEN @IsComplete = 1 THEN @UserId ELSE NULL END
                     WHERE Id = @RunItemId;";
 
-                var rowsAffected = await _connection.ExecuteAsync(sql, new
+                const string parentInfoSql = @"
+                    SELECT Id, CompletedAt
+                    FROM ListRunItems
+                    WHERE Id = @ParentId;";
+
+                var item = await _connection.QuerySingleOrDefaultAsync<RunItemParentInfo>(
+                    infoSql, new { RunItemId = runItemId });
+
+                if (item == null)
+                    return Result<int?>.Fail("List run item not found");
+
+                if (isComplete)
+                {
+                    var incompleteChildren = await _connection.ExecuteScalarAsync<int>(
+                        incompleteChildrenSql, new { RunItemId = runItemId });
+
+                    if (incompleteChildren > 0)
+                        return Result<int?>.Fail("All subtasks must be complete before completing this item.");
+                }
+
+                using var transaction = _connection.BeginTransaction();
+
+                var rowsAffected = await _connection.ExecuteAsync(updateSql, new
                 {
                     RunItemId = runItemId,
                     IsComplete = isComplete,
                     UserId = userId
-                });
+                }, transaction);
 
                 if (rowsAffected == 0)
-                    return Result<bool>.Fail("List run item not found");
+                {
+                    transaction.Rollback();
+                    return Result<int?>.Fail("List run item not found");
+                }
 
-                return Result<bool>.Ok(true);
+                int? cascadedParentId = null;
+
+                if (!isComplete && item.ParentId.HasValue)
+                {
+                    var parent = await _connection.QuerySingleOrDefaultAsync<RunItemCompletionInfo>(
+                        parentInfoSql, new { ParentId = item.ParentId.Value }, transaction);
+
+                    if (parent != null && parent.CompletedAt != null)
+                    {
+                        await _connection.ExecuteAsync(updateSql, new
+                        {
+                            RunItemId = item.ParentId.Value,
+                            IsComplete = false,
+                            UserId = userId
+                        }, transaction);
+
+                        cascadedParentId = item.ParentId.Value;
+                    }
+                }
+
+                transaction.Commit();
+
+                return Result<int?>.Ok(cascadedParentId);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "SetListRunItemCompletion failed. RunItemId={RunItemId}, UserId={UserId}", runItemId, userId);
-                return Result<bool>.Fail(ex.Message);
+                return Result<int?>.Fail(ex.Message);
             }
         }
 
@@ -751,6 +916,7 @@ namespace zListBack.Repositories
                         lri.ListItemName,
                         lri.ListItemDescription,
                         lri.SortOrder,
+                        lri.ParentId,
                         lri.CompletedAt,
                         lri.CompletedBy,
                         CASE
@@ -807,6 +973,7 @@ namespace zListBack.Repositories
 				        ListItemName,
 				        ListItemDescription,
 				        SortOrder,
+				        ParentId,
 				        CompletedAt,
 				        CompletedBy
 			        FROM ListRunItems

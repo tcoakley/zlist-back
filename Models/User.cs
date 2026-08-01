@@ -7,7 +7,7 @@ namespace zListBack.Models
     {
         public int Id { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-        public string Password { get; set; } = string.Empty;
+        public string? Password { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public string? ResetPassword { get; set; }
         public required string Email { get; set; }
@@ -23,9 +23,14 @@ namespace zListBack.Models
         public bool IsAdmin { get; set; }
         public bool IsHelpEnabled { get; set; } = true;
         public bool SortCompletedToBottom { get; set; } = true;
+        public bool AutofocusEnabled { get; set; }
         public DateTime? LastActiveAt { get; set; }
         public DateTime? InactivityNoticeSentAt { get; set; }
         public DateTime? BillingReminderSentAt { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public int FailedLoginAttempts { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public DateTime? LockoutUntil { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
     }

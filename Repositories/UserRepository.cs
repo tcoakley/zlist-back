@@ -24,7 +24,7 @@ namespace zListBack.Repositories
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
                            Subscription, SubscriptionExpiresAt, SubscriptionSource,
                            StripeCustomerId, StripeSubscriptionId, GracePeriodUntil,
-                           IsAdmin, IsHelpEnabled, SortCompletedToBottom,
+                           IsAdmin, IsHelpEnabled, SortCompletedToBottom, AutofocusEnabled,
                            LastActiveAt, InactivityNoticeSentAt, BillingReminderSentAt,
                            CancellationScheduledAt, CreatedAt, UpdatedAt
                     FROM Users
@@ -51,7 +51,7 @@ namespace zListBack.Repositories
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
                            Subscription, SubscriptionExpiresAt, SubscriptionSource,
                            StripeCustomerId, StripeSubscriptionId, GracePeriodUntil,
-                           IsAdmin, IsHelpEnabled, SortCompletedToBottom,
+                           IsAdmin, IsHelpEnabled, SortCompletedToBottom, AutofocusEnabled,
                            LastActiveAt, InactivityNoticeSentAt, BillingReminderSentAt,
                            CancellationScheduledAt, CreatedAt, UpdatedAt
                     FROM Users
@@ -109,20 +109,61 @@ namespace zListBack.Repositories
             }
         }
 
+        // Google-only accounts have no password to hash — separate from AddUserAsync so the
+        // normal password-signup path can't accidentally be reached with a null/empty password.
+        public async Task<Result<User>> AddGoogleUserAsync(User user)
+        {
+            try
+            {
+                const string sql = @"
+                    INSERT INTO Users (Email, FirstName, LastName, Password, CreatedAt, LastActiveAt)
+                    OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
+                           INSERTED.Password, INSERTED.ResetPassword,
+                           INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
+                           INSERTED.CreatedAt, INSERTED.UpdatedAt
+                    VALUES (@Email, @FirstName, @LastName, NULL, @CreatedAt, @CreatedAt);";
+
+                var inserted = await _connection.QuerySingleAsync<User>(
+                    sql,
+                    new
+                    {
+                        user.Email,
+                        user.FirstName,
+                        user.LastName,
+                        CreatedAt = DateTime.UtcNow
+                    }
+                );
+
+                return Result<User>.Ok(inserted, "Account Successfully created");
+            }
+            catch (Exception ex)
+            {
+                var isDuplicate = ex.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) ||
+                                  (ex.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true);
+                if (!isDuplicate)
+                    _logger.LogError(ex, "AddGoogleUserAsync failed. Email={Email}", user.Email);
+                var message = isDuplicate
+                    ? "A user with this email already exists. Please login or use a different email address."
+                    : ex.Message;
+                return Result<User>.Fail(message);
+            }
+        }
+
         public async Task<Result<User>> UpdateUserAsync(User model)
         {
             try
             {
-                if (model.Password.Length > 0)
+                if (!string.IsNullOrEmpty(model.Password))
                 {
                     const string sql = @"
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
                             Password = @Password, IsHelpEnabled = @IsHelpEnabled,
-                            SortCompletedToBottom = @SortCompletedToBottom, UpdatedAt = GETUTCDATE()
+                            SortCompletedToBottom = @SortCompletedToBottom, AutofocusEnabled = @AutofocusEnabled,
+                            UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
                                INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
-                               INSERTED.SortCompletedToBottom, INSERTED.CreatedAt, INSERTED.UpdatedAt
+                               INSERTED.SortCompletedToBottom, INSERTED.AutofocusEnabled, INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
                     var updated = await _connection.QuerySingleOrDefaultAsync<User>(
@@ -135,7 +176,8 @@ namespace zListBack.Repositories
                             model.LastName,
                             Password = BCrypt.Net.BCrypt.HashPassword(model.Password),
                             model.IsHelpEnabled,
-                            model.SortCompletedToBottom
+                            model.SortCompletedToBottom,
+                            model.AutofocusEnabled
                         }
                     );
 
@@ -150,10 +192,10 @@ namespace zListBack.Repositories
                         UPDATE Users
                         SET Email = @Email, FirstName = @FirstName, LastName = @LastName,
                             IsHelpEnabled = @IsHelpEnabled, SortCompletedToBottom = @SortCompletedToBottom,
-                            UpdatedAt = GETUTCDATE()
+                            AutofocusEnabled = @AutofocusEnabled, UpdatedAt = GETUTCDATE()
                         OUTPUT INSERTED.Id, INSERTED.Email, INSERTED.FirstName, INSERTED.LastName,
                                INSERTED.Subscription, INSERTED.SubscriptionExpiresAt, INSERTED.IsHelpEnabled,
-                               INSERTED.SortCompletedToBottom, INSERTED.CreatedAt, INSERTED.UpdatedAt
+                               INSERTED.SortCompletedToBottom, INSERTED.AutofocusEnabled, INSERTED.CreatedAt, INSERTED.UpdatedAt
                         WHERE Id = @Id;";
 
                     var updated = await _connection.QuerySingleOrDefaultAsync<User>(
@@ -165,7 +207,8 @@ namespace zListBack.Repositories
                             model.FirstName,
                             model.LastName,
                             model.IsHelpEnabled,
-                            model.SortCompletedToBottom
+                            model.SortCompletedToBottom,
+                            model.AutofocusEnabled
                         }
                     );
 
@@ -182,6 +225,9 @@ namespace zListBack.Repositories
             }
         }
 
+        private const int MaxFailedLoginAttempts = 5;
+        private const int LockoutMinutes = 15;
+
         public async Task<Result<User>> CheckLoginAsync(string email, string password)
         {
             try
@@ -190,9 +236,10 @@ namespace zListBack.Repositories
                     SELECT Id, Email, FirstName, LastName, Password, ResetPassword,
                            Subscription, SubscriptionExpiresAt, SubscriptionSource,
                            StripeCustomerId, StripeSubscriptionId, GracePeriodUntil,
-                           IsAdmin, IsHelpEnabled, SortCompletedToBottom,
+                           IsAdmin, IsHelpEnabled, SortCompletedToBottom, AutofocusEnabled,
                            LastActiveAt, InactivityNoticeSentAt, BillingReminderSentAt,
-                           CancellationScheduledAt, CreatedAt, UpdatedAt
+                           CancellationScheduledAt, FailedLoginAttempts, LockoutUntil,
+                           CreatedAt, UpdatedAt
                     FROM Users
                     WHERE Email = @Email;";
 
@@ -200,9 +247,9 @@ namespace zListBack.Repositories
                 if (user == null)
                     return Result<User>.Fail("Invalid email or password");
 
-                if (!string.IsNullOrEmpty(user.Password) && BCrypt.Net.BCrypt.Verify(password, user.Password))
-                    return Result<User>.Ok(user);
-
+                // A correct reset/temp password proves email ownership, at least as strongly as the
+                // original password would — so it's allowed through even while locked out; it's the
+                // designated recovery path out of a lockout, not just another guessable credential.
                 if (!string.IsNullOrEmpty(user.ResetPassword) && user.ResetPassword == password)
                 {
                     const string updateSql = @"
@@ -213,10 +260,24 @@ namespace zListBack.Repositories
                     user.Password = BCrypt.Net.BCrypt.HashPassword(password);
                     user.ResetPassword = null;
                     await _connection.ExecuteAsync(updateSql, new { Password = user.Password, user.Id });
+                    await ResetFailedLoginAttemptsAsync(user);
 
                     return Result<User>.Ok(user);
                 }
 
+                if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
+                {
+                    var minutesRemaining = (int)Math.Ceiling((user.LockoutUntil.Value - DateTime.UtcNow).TotalMinutes);
+                    return Result<User>.Fail($"Account locked due to too many failed login attempts. Try again in {minutesRemaining} minute(s).");
+                }
+
+                if (!string.IsNullOrEmpty(user.Password) && BCrypt.Net.BCrypt.Verify(password, user.Password))
+                {
+                    await ResetFailedLoginAttemptsAsync(user);
+                    return Result<User>.Ok(user);
+                }
+
+                await RegisterFailedLoginAttemptAsync(user);
                 return Result<User>.Fail("Invalid email or password");
             }
             catch (Exception ex)
@@ -224,6 +285,36 @@ namespace zListBack.Repositories
                 _logger.LogError(ex, "CheckLoginAsync failed. Email={Email}", email);
                 return Result<User>.Fail(ex.Message);
             }
+        }
+
+        private async Task ResetFailedLoginAttemptsAsync(User user)
+        {
+            if (user.FailedLoginAttempts == 0 && user.LockoutUntil == null)
+                return;
+
+            const string sql = @"
+                UPDATE Users
+                SET FailedLoginAttempts = 0, LockoutUntil = NULL
+                WHERE Id = @Id;";
+            await _connection.ExecuteAsync(sql, new { user.Id });
+        }
+
+        private async Task RegisterFailedLoginAttemptAsync(User user)
+        {
+            // A past-expired lockout starts a fresh attempt count rather than accumulating forever.
+            var baseAttempts = user.LockoutUntil.HasValue && user.LockoutUntil.Value <= DateTime.UtcNow
+                ? 0
+                : user.FailedLoginAttempts;
+            var attempts = baseAttempts + 1;
+            DateTime? lockoutUntil = attempts >= MaxFailedLoginAttempts
+                ? DateTime.UtcNow.AddMinutes(LockoutMinutes)
+                : null;
+
+            const string sql = @"
+                UPDATE Users
+                SET FailedLoginAttempts = @Attempts, LockoutUntil = @LockoutUntil
+                WHERE Id = @Id;";
+            await _connection.ExecuteAsync(sql, new { Attempts = attempts, LockoutUntil = lockoutUntil, user.Id });
         }
 
         public async Task<Result<string>> GenerateResetPassword(string email)
