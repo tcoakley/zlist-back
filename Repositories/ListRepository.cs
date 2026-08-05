@@ -1015,7 +1015,7 @@ namespace zListBack.Repositories
             }
         }
 
-        public async Task<Result<System.Collections.Generic.List<ListRunHistoryModel>>> GetListRunHistory(int listId)
+        public async Task<Result<System.Collections.Generic.List<ListRunHistoryModel>>> GetListRunHistory(int listId, int userId)
         {
             try
             {
@@ -1028,18 +1028,52 @@ namespace zListBack.Repositories
                         COUNT(lri.Id) AS TotalItems,
                         SUM(CASE WHEN lri.CompletedAt IS NOT NULL THEN 1 ELSE 0 END) AS CompletedItems
                     FROM ListRuns lr
+                    INNER JOIN UserLists ul ON ul.ListId = lr.ListId AND ul.UserId = @UserId
                     LEFT JOIN ListRunItems lri ON lri.ListRunId = lr.Id
                     WHERE lr.ListId = @ListId
                     GROUP BY lr.Id, lr.ListId, lr.CreatedAt, lr.CompletedAt
                     ORDER BY lr.CreatedAt DESC, lr.Id DESC;";
 
-                var history = await _connection.QueryAsync<ListRunHistoryModel>(sql, new { ListId = listId });
+                var history = await _connection.QueryAsync<ListRunHistoryModel>(sql, new { ListId = listId, UserId = userId });
                 return Result<System.Collections.Generic.List<ListRunHistoryModel>>.Ok(history.ToList());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "GetListRunHistory failed. ListId={ListId}", listId);
                 return Result<System.Collections.Generic.List<ListRunHistoryModel>>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<Result<System.Collections.Generic.List<AllListsRunSummaryModel>>> GetAllRunHistory(int userId, int days)
+        {
+            try
+            {
+                const string sql = @"
+                    SELECT
+                        lr.Id,
+                        lr.ListId,
+                        l.ListName,
+                        lr.CreatedAt,
+                        lr.CompletedAt,
+                        COUNT(lri.Id) AS TotalItems,
+                        SUM(CASE WHEN lri.CompletedAt IS NOT NULL THEN 1 ELSE 0 END) AS CompletedItems
+                    FROM ListRuns lr
+                    INNER JOIN Lists l ON l.Id = lr.ListId
+                    INNER JOIN UserLists ul ON ul.ListId = l.Id
+                    LEFT JOIN ListRunItems lri ON lri.ListRunId = lr.Id
+                    WHERE ul.UserId = @UserId
+                      AND l.IsArchived = 0
+                      AND lr.CreatedAt >= DATEADD(DAY, -@Days, GETUTCDATE())
+                    GROUP BY lr.Id, lr.ListId, l.ListName, lr.CreatedAt, lr.CompletedAt
+                    ORDER BY lr.CreatedAt DESC, lr.Id DESC;";
+
+                var history = await _connection.QueryAsync<AllListsRunSummaryModel>(sql, new { UserId = userId, Days = days });
+                return Result<System.Collections.Generic.List<AllListsRunSummaryModel>>.Ok(history.ToList());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetAllRunHistory failed. UserId={UserId}", userId);
+                return Result<System.Collections.Generic.List<AllListsRunSummaryModel>>.Fail(ex.Message);
             }
         }
 

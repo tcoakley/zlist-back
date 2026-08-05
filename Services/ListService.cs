@@ -166,9 +166,14 @@ namespace zListBack.Services
             return await _listRepository.DeleteListRun(runId, userId);
         }
 
-        public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId)
+        public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId, int userId)
         {
-            return await _listRepository.GetListRunHistory(listId);
+            return await _listRepository.GetListRunHistory(listId, userId);
+        }
+
+        public async Task<Result<List<AllListsRunSummaryModel>>> GetAllRunHistory(int userId, int days)
+        {
+            return await _listRepository.GetAllRunHistory(userId, days);
         }
 
         // === Shared list methods ====================================================

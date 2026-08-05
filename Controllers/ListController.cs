@@ -150,7 +150,13 @@ namespace zListBack.Controllers
         [HttpGet("GetListRunHistory/{listId}")]
         public async Task<Result<List<ListRunHistoryModel>>> GetListRunHistory(int listId)
         {
-            return await _listService.GetListRunHistory(listId);
+            return await _listService.GetListRunHistory(listId, _userId);
+        }
+
+        [HttpGet("GetAllRunHistory")]
+        public async Task<Result<List<AllListsRunSummaryModel>>> GetAllRunHistory(int days = 365)
+        {
+            return await _listService.GetAllRunHistory(_userId, days);
         }
 
         // === Shared list endpoints ===================================================
