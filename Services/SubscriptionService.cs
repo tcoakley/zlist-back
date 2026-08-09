@@ -678,23 +678,22 @@ namespace zListBack.Services
             if (user == null) return;
 
             var lastAccessDate = subscription.EndedAt ?? DateTime.UtcNow;
-
-            // Downgrade the account itself first, unconditionally — must not depend on the
-            // sponsor-cascade cleanup below succeeding, or a failure there leaves the account
-            // stuck showing premium/stripe indefinitely (with a stale SubscriptionExpiresAt
-            // that keeps tripping the billing-reminder job) even though Stripe has genuinely
-            // cancelled the subscription.
-            await _subscriptionRepo.SetUserSubscription(user.Id, "free", "free", null);
             await _subscriptionRepo.SetCancellationScheduled(user.Id, null);
 
             try
             {
+                // FinalizeSponsorCancellation is what actually downgrades the account to free.
                 await HandleSponsorCancellation(user.Id);
                 await FinalizeSponsorCancellation(user.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Sponsor cascade cleanup failed after subscription deletion. UserId={UserId}", user.Id);
+                // If anything above throws before reaching the downgrade, fall back to it
+                // directly here — otherwise the account is left stuck showing premium/stripe
+                // indefinitely (with a stale SubscriptionExpiresAt that keeps tripping the
+                // billing-reminder job) even though Stripe has genuinely cancelled the subscription.
+                _logger.LogError(ex, "Sponsor cascade cleanup failed after subscription deletion — downgrading directly as a fallback. UserId={UserId}", user.Id);
+                await _subscriptionRepo.SetUserSubscription(user.Id, "free", "free", null);
             }
 
             var firstName = user.FirstName ?? user.Email;
